@@ -118,8 +118,8 @@ Workaround: stay in **Testing** and add yourself as a test user:
    signed this account out"). Sign in again, or add the account again under
    **Settings → Google accounts**.
 
-Try **Publish app** again now and then. Once it works, go to **Accounts → Add
-account** and pick each account again, to get tokens without the 7-day limit. Adding an **Application home page** and
+Try **Publish app** again now and then. Once it works, go to **Settings → Google
+accounts → Add account** and pick each account again, to get tokens without the 7-day limit. Adding an **Application home page** and
 **Privacy policy link** on Branding (on a domain you control) may also unlock
 it, but nobody has confirmed that yet.
 
