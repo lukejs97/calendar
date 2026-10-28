@@ -19,14 +19,23 @@ type Calendar = typeof PERSONAL;
 
 function sampleItems(from: Date, to: Date): AgendaItem[] {
   const items: AgendaItem[] = [];
-  const base = {
+  const base: Omit<AgendaItem, "id" | "title" | "start" | "end" | "allDay" | "location" | "color" | "listName"> = {
     source: "google",
     kind: "event",
     url: "https://calendar.google.com/",
     completed: false,
     overdue: false,
     priority: null,
-  } as const;
+    account: "preview@example.com",
+    calendarId: "personal",
+    eventId: null,
+    editable: true,
+    recurring: false,
+    description: null,
+    attendees: [],
+    conferenceUrl: null,
+    reminders: [10],
+  };
   const today = startOfDay(new Date());
 
   const task = (day: Date, title: string, priority: number, project: Calendar, hour?: number, overdue = false) => {
@@ -36,6 +45,10 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       source: "todoist",
       kind: "task",
       url: "https://app.todoist.com/",
+      account: null,
+      calendarId: null,
+      editable: false,
+      reminders: [],
       id: `todoist:${title}:${toDateString(day)}`,
       title,
       start: start ? start.toISOString() : toDateString(day),
@@ -49,10 +62,19 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     });
   };
 
-  const timed = (day: Date, title: string, cal: Calendar, hour: number, minutes: number, location?: string) => {
+  const timed = (
+    day: Date,
+    title: string,
+    cal: Calendar,
+    hour: number,
+    minutes: number,
+    location?: string,
+    extra: Partial<AgendaItem> = {},
+  ) => {
     const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(hour), (hour % 1) * 60);
     items.push({
       ...base,
+      ...extra,
       id: `mock:${title}:${toDateString(day)}`,
       title,
       start: start.toISOString(),
@@ -79,7 +101,19 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
   for (let day = from; day < to; day = addDays(day, 1)) {
     const weekday = day.getDay();
     const date = day.getDate();
-    if (weekday >= 1 && weekday <= 5) timed(day, "Standup", WORK, 9.5, 15, "Google Meet");
+    if (weekday >= 1 && weekday <= 5) {
+      timed(day, "Standup", WORK, 9.5, 15, undefined, {
+        recurring: true,
+        conferenceUrl: "https://meet.google.com/abc-defg-hij",
+        attendees: [
+          { name: "Alex Kim", email: "alex@example.com", response: "accepted", organizer: true, isSelf: false },
+          { name: null, email: "preview@example.com", response: "accepted", organizer: false, isSelf: true },
+          { name: "Sam Lee", email: "sam@example.com", response: "tentative", organizer: false, isSelf: false },
+        ],
+        description:
+          "<p>Daily check-in. Agenda: <a href=\"https://docs.example.com/standup\">standup notes</a></p><p>Three things:<br>yesterday, today, blockers.</p>",
+      });
+    }
     if (weekday === 1 || weekday === 4) task(day, "Review inbox", 4, INBOX);
     if (weekday === 3) task(day, "Call the plumber", 2, HOME, 13);
     if (weekday === 5) task(day, "Submit expenses", 1, WORK_TASKS);
@@ -153,8 +187,9 @@ export function install(): void {
       case "create_event": {
         const { calendarId, event } = args as { calendarId: string; event: NewEvent };
         const calendar = calendars.find((c) => c.id === calendarId)!;
+        const id = `mock:created:${created.length}`;
         created.push({
-          id: `mock:created:${created.length}`,
+          id,
           source: "google",
           kind: "event",
           title: event.title,
@@ -168,7 +203,22 @@ export function install(): void {
           completed: false,
           overdue: false,
           priority: null,
+          account: "preview@example.com",
+          calendarId,
+          eventId: id,
+          editable: true,
+          recurring: false,
+          description: null,
+          attendees: [],
+          conferenceUrl: null,
+          reminders: [10],
         });
+        return null;
+      }
+      case "move_event": {
+        const { start, end } = args as { start: string; end: string };
+        const event = created.find((item) => (args as { eventId: string }).eventId === item.id);
+        if (event) Object.assign(event, { start, end });
         return null;
       }
       case "todoist_status":

@@ -19,4 +19,8 @@ export interface ViewContext {
   goTo(view: ViewName, date: Date): void;
   /** Completes a task, or un-completes it. */
   toggleTask(item: AgendaItem): void;
+  /** Shows an item's details. */
+  openItem(item: AgendaItem): void;
+  /** Moves or resizes a Google event (see `AgendaItem.editable`). */
+  moveEvent(item: AgendaItem, start: Date, end: Date): void;
 }

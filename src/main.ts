@@ -4,15 +4,17 @@ import {
   errorMessage,
   getAgenda,
   isNotSignedIn,
+  moveEvent as saveEventTimes,
   setTaskCompleted,
   signIn,
   type Agenda,
   type AgendaItem,
 } from "./api";
+import { openDetails } from "./details";
 import { el } from "./dom";
 import { openQuickAdd } from "./quick-add";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
-import { overlaps, startOfDay, toDateString } from "./time";
+import { localTimeZone, overlaps, startOfDay, toDateString, toLocalIso } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -94,6 +96,8 @@ function render(agenda: Agenda): void {
     reveal: revealNow,
     goTo,
     toggleTask,
+    openItem: (item) => openDetails(item, toggleTask),
+    moveEvent,
   });
   shown = { view: state.view, range: key, agenda };
 }
@@ -120,6 +124,34 @@ async function toggleTask(item: AgendaItem): Promise<void> {
     else toggledTasks.delete(item.id);
     rerender();
     banner.replaceChildren(el("p", "error", `Couldn't update "${item.title}": ${errorMessage(e)}`));
+  }
+}
+
+/** Swaps in a changed copy of an item in what's on screen, and redraws. */
+function replaceShown(item: AgendaItem): void {
+  if (!shown) return;
+  const agenda = { ...shown.agenda, items: shown.agenda.items.map((i) => (i.id === item.id ? item : i)) };
+  cache.set(shown.range, agenda);
+  shown = { ...shown, agenda };
+  rerender();
+}
+
+/** Moves a Google event right away on screen, then tells Google. */
+async function moveEvent(item: AgendaItem, start: Date, end: Date): Promise<void> {
+  const unchanged =
+    start.getTime() === new Date(item.start).getTime() && end.getTime() === new Date(item.end ?? item.start).getTime();
+  if (unchanged) {
+    rerender();
+    return;
+  }
+  replaceShown({ ...item, start: toLocalIso(start), end: toLocalIso(end) });
+  try {
+    await saveEventTimes(item, toLocalIso(start), toLocalIso(end), localTimeZone());
+    // Other cached ranges may show it too; fetch them fresh when visited.
+    for (const key of cache.keys()) if (key !== shown?.range) cache.delete(key);
+  } catch (e) {
+    replaceShown(item);
+    banner.replaceChildren(el("p", "error", `Couldn't move "${item.title}": ${errorMessage(e)}`));
   }
 }
 

@@ -44,7 +44,7 @@ function monthEntry(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement 
   setItemColor(node, item);
   if (item.kind === "event" && itemEnd(item) <= ctx.now) node.classList.add("past");
   decorateTask(node, item, ctx.toggleTask);
-  makeOpenable(node, item);
+  makeOpenable(node, item, ctx.openItem);
   return node;
 }
 

@@ -96,3 +96,40 @@ export function itemsOnDay(items: AgendaItem[], day: Date): AgendaItem[] {
 }
 
 export const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+const shortDayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
+const shortDayWithYearFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/**
+ * "Thu, 29 Oct, 1:00 PM – 2:00 PM", or "Thu, 12 Nov – Sat, 14 Nov · All day"
+ * (exact wording follows the system's language). For all-day items, `end`
+ * is the midnight after the last day.
+ */
+export function describeTimes(start: Date, end: Date, allDay: boolean): string {
+  const thisYear = new Date().getFullYear();
+  const day = (d: Date) => (d.getFullYear() === thisYear ? shortDayFormat : shortDayWithYearFormat).format(d);
+  if (allDay) {
+    const last = addDays(end, -1);
+    return `${last <= start ? day(start) : `${day(start)} – ${day(last)}`} · All day`;
+  }
+  const from = `${day(start)}, ${timeFormat.format(start)}`;
+  if (end <= start) return from;
+  const to = isSameDay(start, end) ? timeFormat.format(end) : `${day(end)}, ${timeFormat.format(end)}`;
+  return `${from} – ${to}`;
+}
+
+/** "2026-10-29T13:00:00+01:00": local time with its UTC offset. */
+export function toLocalIso(d: Date): string {
+  const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  return `${toDateString(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
+}
+
+/** The system's time zone, e.g. "Europe/London". */
+export const localTimeZone = (): string | null => Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;

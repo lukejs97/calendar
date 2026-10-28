@@ -80,7 +80,7 @@ function renderItem(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement 
   if (item.kind === "event") li.append(el("span", "item-bar"));
   li.append(timeLabel(item, day), body);
   decorateTask(li, item, ctx.toggleTask);
-  makeOpenable(li, item);
+  makeOpenable(li, item, ctx.openItem);
   return li;
 }
 

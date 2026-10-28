@@ -99,6 +99,22 @@ async fn create_event(
     google::calendar::create_event(&state.http, &token, &calendar_id, &event).await
 }
 
+/// Moves (or resizes) a timed Google event. `start` and `end` are RFC 3339.
+#[tauri::command]
+async fn move_event(
+    state: State<'_, AppState>,
+    email: String,
+    calendar_id: String,
+    event_id: String,
+    start: String,
+    end: String,
+    time_zone: Option<String>,
+) -> Result<()> {
+    let token = state.google_auth.access_token(&email).await?;
+    google::calendar::move_event(&state.http, &token, &calendar_id, &event_id, &start, &end, time_zone.as_deref())
+        .await
+}
+
 fn parse_date(s: &str) -> Result<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map_err(|_| AppError::InvalidInput(format!("not a YYYY-MM-DD date: {s:?}")))
@@ -169,6 +185,7 @@ pub fn run() {
             get_agenda,
             event_calendars,
             create_event,
+            move_event,
             todoist_status,
             todoist_connect,
             todoist_disconnect,

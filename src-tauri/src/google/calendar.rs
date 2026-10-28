@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use url::Url;
 
-use crate::agenda::{AgendaItem, ItemKind, Source};
+use crate::agenda::{AgendaItem, Attendee as Guest, ItemKind, Source};
 use crate::error::{AppError, Result};
 
 const API: &str = "https://www.googleapis.com/calendar/v3";
@@ -33,11 +33,18 @@ struct CalendarListEntry {
     access_role: Option<String>,
     #[serde(default)]
     primary: bool,
+    /// The calendar's reminders for events that don't set their own.
+    #[serde(default)]
+    default_reminders: Vec<Reminder>,
 }
 
 impl CalendarListEntry {
     fn name(&self) -> String {
         self.summary_override.clone().or_else(|| self.summary.clone()).unwrap_or_else(|| self.id.clone())
+    }
+
+    fn can_write(&self) -> bool {
+        matches!(self.access_role.as_deref(), Some("owner" | "writer"))
     }
 }
 
@@ -54,6 +61,53 @@ struct Event {
     #[serde(default)]
     attendees: Vec<Attendee>,
     event_type: Option<String>,
+    description: Option<String>,
+    /// Google Meet link, on older events.
+    hangout_link: Option<String>,
+    conference_data: Option<ConferenceData>,
+    reminders: Option<Reminders>,
+    organizer: Option<Organizer>,
+    #[serde(default)]
+    guests_can_modify: bool,
+    /// Set on each occurrence of a repeating event.
+    recurring_event_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConferenceData {
+    #[serde(default)]
+    entry_points: Vec<EntryPoint>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EntryPoint {
+    /// "video", "phone", "sip" or "more".
+    entry_point_type: Option<String>,
+    uri: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Reminders {
+    #[serde(default)]
+    use_default: bool,
+    #[serde(default)]
+    overrides: Vec<Reminder>,
+}
+
+#[derive(Deserialize)]
+struct Reminder {
+    /// "popup" or "email".
+    method: Option<String>,
+    minutes: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct Organizer {
+    #[serde(rename = "self", default)]
+    is_self: bool,
 }
 
 /// Exactly one of these is set: `date` ("2026-10-27") for all-day events,
@@ -71,6 +125,13 @@ struct Attendee {
     #[serde(rename = "self", default)]
     is_self: bool,
     response_status: Option<String>,
+    email: Option<String>,
+    display_name: Option<String>,
+    #[serde(default)]
+    organizer: bool,
+    /// Rooms and other resources, not people.
+    #[serde(default)]
+    resource: bool,
 }
 
 #[derive(Deserialize)]
@@ -89,10 +150,13 @@ pub struct CalendarEvents {
     pub warnings: Vec<String>,
 }
 
-/// Events from every calendar in the user's list between `from` and `to`.
+/// Events from every calendar in `account`'s list between `from` and `to`.
+/// `can_edit`: whether the account allowed the app to change events.
 pub async fn events_between(
     http: &reqwest::Client,
     token: &str,
+    account: &str,
+    can_edit: bool,
     from: DateTime<Local>,
     to: DateTime<Local>,
 ) -> Result<CalendarEvents> {
@@ -106,7 +170,9 @@ pub async fn events_between(
     let mut warnings = Vec::new();
     for (calendar, result) in calendars.iter().zip(results) {
         match result {
-            Ok(events) => items.extend(events.into_iter().filter_map(|e| to_agenda_item(calendar, e))),
+            Ok(events) => {
+                items.extend(events.into_iter().filter_map(|e| to_agenda_item(account, can_edit, calendar, e)))
+            }
             Err(e) => warnings.push(format!("{}: {e}", calendar.name())),
         }
     }
@@ -140,7 +206,7 @@ pub async fn editable_calendars(http: &reqwest::Client, token: &str) -> Result<V
     let mut calendars: Vec<EventCalendar> = list_calendars(http, token)
         .await?
         .into_iter()
-        .filter(|cal| matches!(cal.access_role.as_deref(), Some("owner" | "writer")))
+        .filter(CalendarListEntry::can_write)
         .map(|cal| EventCalendar { name: cal.name(), id: cal.id, color: cal.background_color, primary: cal.primary })
         .collect();
     calendars.sort_by_key(|cal| !cal.primary);
@@ -196,6 +262,31 @@ pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str
     let mut url = Url::parse(API).expect("valid URL");
     url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events"]);
     let _created: serde_json::Value = send(http.post(url).bearer_auth(token).json(&body)).await?;
+    Ok(())
+}
+
+/// Moves a timed event, or changes its length. `start` and `end` are RFC 3339.
+/// For one occurrence of a repeating event, only that occurrence changes.
+pub async fn move_event(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    start: &str,
+    end: &str,
+    time_zone: Option<&str>,
+) -> Result<()> {
+    if parse_time(end)? <= parse_time(start)? {
+        return Err(AppError::InvalidInput("the event must end after it starts".into()));
+    }
+    let at = |time: &str| match time_zone {
+        Some(zone) => json!({ "dateTime": time, "timeZone": zone }),
+        None => json!({ "dateTime": time }),
+    };
+    let body = json!({ "start": at(start), "end": at(end) });
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", event_id]);
+    let _updated: serde_json::Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
     Ok(())
 }
 
@@ -275,7 +366,7 @@ async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T
     Err(AppError::Api { status: status.as_u16(), message })
 }
 
-fn to_agenda_item(calendar: &CalendarListEntry, event: Event) -> Option<AgendaItem> {
+fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, event: Event) -> Option<AgendaItem> {
     if event.status.as_deref() == Some("cancelled") {
         return None;
     }
@@ -299,7 +390,47 @@ fn to_agenda_item(calendar: &CalendarListEntry, event: Event) -> Option<AgendaIt
     };
     let end = event.end.and_then(|e| e.date_time.or(e.date));
 
+    let conference_url = event
+        .conference_data
+        .iter()
+        .flat_map(|data| &data.entry_points)
+        .find(|entry| entry.entry_point_type.as_deref() == Some("video"))
+        .and_then(|entry| entry.uri.clone())
+        .or(event.hangout_link)
+        .or_else(|| event.location.as_deref().and_then(find_meeting_link))
+        .or_else(|| event.description.as_deref().and_then(find_meeting_link));
+    let reminders = if all_day {
+        Vec::new()
+    } else {
+        match &event.reminders {
+            Some(r) if !r.use_default => popup_minutes(&r.overrides),
+            _ => popup_minutes(&calendar.default_reminders),
+        }
+    };
+    let organized_by_you = event.organizer.as_ref().is_none_or(|o| o.is_self);
+    let attendees = event
+        .attendees
+        .into_iter()
+        .filter(|a| !a.resource)
+        .map(|a| Guest {
+            name: a.display_name,
+            email: a.email,
+            response: a.response_status,
+            organizer: a.organizer,
+            is_self: a.is_self,
+        })
+        .collect();
+
     Some(AgendaItem {
+        account: Some(account.to_string()),
+        calendar_id: Some(calendar.id.clone()),
+        event_id: Some(event.id.clone()),
+        editable: can_edit && calendar.can_write() && (organized_by_you || event.guests_can_modify),
+        recurring: event.recurring_event_id.is_some(),
+        description: event.description.filter(|s| !s.trim().is_empty()),
+        attendees,
+        conference_url,
+        reminders,
         id: format!("google:{}:{}", calendar.id, event.id),
         source: Source::Google,
         kind: ItemKind::Event,
@@ -315,4 +446,27 @@ fn to_agenda_item(calendar: &CalendarListEntry, event: Event) -> Option<AgendaIt
         overdue: false,
         priority: None,
     })
+}
+
+fn popup_minutes(reminders: &[Reminder]) -> Vec<u32> {
+    reminders.iter().filter(|r| r.method.as_deref() == Some("popup")).filter_map(|r| r.minutes).collect()
+}
+
+/// The first video-call link in `text` (a location or notes, possibly HTML).
+fn find_meeting_link(text: &str) -> Option<String> {
+    const HOSTS: &[&str] = &[
+        "zoom.us/",
+        "meet.google.com/",
+        "teams.microsoft.com/",
+        "teams.live.com/",
+        "webex.com/",
+        "whereby.com/",
+        "gotomeeting.com/",
+        "chime.aws/",
+    ];
+    text.replace("&amp;", "&")
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')'))
+        .filter(|word| word.starts_with("https://"))
+        .find(|word| HOSTS.iter().any(|host| word.contains(host)))
+        .map(|word| word.trim_end_matches(['.', ',', ';']).to_string())
 }

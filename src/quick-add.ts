@@ -3,17 +3,9 @@
 import { createEvent, errorMessage, eventCalendars, type NewEvent } from "./api";
 import { el } from "./dom";
 import { parseEvent, type ParsedEvent } from "./quick-parse";
-import { addDays, isSameDay, timeFormat, toDateString } from "./time";
+import { describeTimes, localTimeZone, toDateString, toLocalIso } from "./time";
 
 const CALENDAR_STORAGE_KEY = "calendar.newEventCalendar";
-
-const dayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
-const dayWithYearFormat = new Intl.DateTimeFormat(undefined, {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 interface Choice {
   email: string;
@@ -145,24 +137,9 @@ function showPreview(preview: HTMLElement, text: string, event: ParsedEvent | nu
     preview.replaceChildren(el("p", undefined, "Add a title, like “Lunch”."));
     return;
   }
-  const rows = [el("strong", undefined, event.title), el("p", undefined, describeWhen(event))];
+  const rows = [el("strong", undefined, event.title), el("p", undefined, describeTimes(event.start, event.end, event.allDay))];
   if (event.location) rows.push(el("p", undefined, event.location));
   preview.replaceChildren(...rows);
-}
-
-/** "Thu, 29 Oct, 1:00 PM – 2:00 PM", or "Thu, 12 Nov – Sat, 14 Nov · All day". */
-function describeWhen(event: ParsedEvent): string {
-  const now = new Date();
-  const day = (d: Date) => (d.getFullYear() === now.getFullYear() ? dayFormat : dayWithYearFormat).format(d);
-  if (event.allDay) {
-    const last = addDays(event.end, -1);
-    return `${isSameDay(event.start, last) ? day(event.start) : `${day(event.start)} – ${day(last)}`} · All day`;
-  }
-  const from = `${day(event.start)}, ${timeFormat.format(event.start)}`;
-  const to = isSameDay(event.start, event.end)
-    ? timeFormat.format(event.end)
-    : `${day(event.end)}, ${timeFormat.format(event.end)}`;
-  return `${from} – ${to}`;
 }
 
 function toNewEvent(event: ParsedEvent): NewEvent {
@@ -172,16 +149,8 @@ function toNewEvent(event: ParsedEvent): NewEvent {
     end: event.allDay ? toDateString(event.end) : toLocalIso(event.end),
     allDay: event.allDay,
     location: event.location,
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
+    timeZone: localTimeZone(),
   };
-}
-
-/** "2026-10-29T13:00:00+01:00": local time with its UTC offset. */
-function toLocalIso(d: Date): string {
-  const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
-  const offset = -d.getTimezoneOffset();
-  const sign = offset >= 0 ? "+" : "-";
-  return `${toDateString(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
 }
 
 function savedChoice(): Choice | undefined {

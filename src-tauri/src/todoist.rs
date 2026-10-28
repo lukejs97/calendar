@@ -34,6 +34,8 @@ struct Project {
 struct Task {
     id: String,
     content: String,
+    #[serde(default)]
+    description: String,
     project_id: String,
     due: Option<Due>,
     duration: Option<Duration>,
@@ -231,6 +233,15 @@ fn to_agenda_item(
         overdue,
         // Flip to Todoist's on-screen numbering: 1 = P1 (most urgent).
         priority: Some(5 - task.priority.clamp(1, 4)),
+        account: None,
+        calendar_id: None,
+        event_id: None,
+        editable: false,
+        recurring: false,
+        description: Some(task.description).filter(|d| !d.trim().is_empty()),
+        attendees: Vec::new(),
+        conference_url: None,
+        reminders: Vec::new(),
     })
 }
 

@@ -4,6 +4,16 @@ import { invoke } from "@tauri-apps/api/core";
 export type Source = "google" | "todoist";
 export type ItemKind = "event" | "task";
 
+/** Someone invited to an event. Mirrors `Attendee` in src-tauri/src/agenda.rs. */
+export interface Attendee {
+  name: string | null;
+  email: string | null;
+  /** "accepted", "declined", "tentative" or "needsAction". */
+  response: string | null;
+  organizer: boolean;
+  isSelf: boolean;
+}
+
 /** Mirrors `AgendaItem` in src-tauri/src/agenda.rs. */
 export interface AgendaItem {
   id: string;
@@ -25,6 +35,21 @@ export interface AgendaItem {
   overdue: boolean;
   /** Tasks only: 1 (most urgent) to 4, as numbered in the Todoist app. */
   priority: number | null;
+  /** Google events: the account and calendar they're on, and their ID there. */
+  account: string | null;
+  calendarId: string | null;
+  eventId: string | null;
+  /** Google events the app may move or resize. */
+  editable: boolean;
+  /** One occurrence of a repeating event. */
+  recurring: boolean;
+  /** Notes. Google's may contain simple HTML. */
+  description: string | null;
+  attendees: Attendee[];
+  /** Video call link: Google Meet, Zoom, Teams and the like. */
+  conferenceUrl: string | null;
+  /** When to alert, in minutes before the start. */
+  reminders: number[];
 }
 
 export interface Agenda {
@@ -78,6 +103,16 @@ export const removeGoogleAccount = (email: string) => invoke<void>("remove_googl
 export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
 export const createEvent = (email: string, calendarId: string, event: NewEvent) =>
   invoke<void>("create_event", { email, calendarId, event });
+/** Moves or resizes a timed Google event; `start` and `end` are ISO timestamps with offset. */
+export const moveEvent = (item: AgendaItem, start: string, end: string, timeZone: string | null) =>
+  invoke<void>("move_event", {
+    email: item.account,
+    calendarId: item.calendarId,
+    eventId: item.eventId,
+    start,
+    end,
+    timeZone,
+  });
 /** Items from local date `from` up to (not including) `to`, both "YYYY-MM-DD". */
 export const getAgenda = (from: string, to: string) => invoke<Agenda>("get_agenda", { from, to });
 

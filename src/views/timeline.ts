@@ -21,6 +21,12 @@ const HOUR_HEIGHT = 48; // px
 const PX_PER_MS = HOUR_HEIGHT / (60 * MS_PER_MINUTE);
 const MIN_EVENT_HEIGHT = 18; // px, so short events stay clickable and readable
 const MIN_EVENT_MS = MIN_EVENT_HEIGHT / PX_PER_MS;
+/** Dragged events move and resize in steps of this many minutes. */
+const SNAP_MINUTES = 15;
+/** px at the bottom of an event that resize it instead of moving it. */
+const RESIZE_HANDLE = 7;
+/** px the pointer must travel before a press becomes a drag. */
+const DRAG_THRESHOLD = 4;
 
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const hourFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric" });
@@ -122,7 +128,7 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     if (itemEnd(item) > rangeEnd) bar.classList.add("cont-right");
     if (item.kind === "event" && itemEnd(item) <= ctx.now) bar.classList.add("past");
     decorateTask(bar, item, ctx.toggleTask);
-    makeOpenable(bar, item);
+    makeOpenable(bar, item, ctx.openItem);
     row.append(bar);
   }
   label.style.gridRow = `1 / span ${Math.max(1, laneEnds.length)}`;
@@ -153,8 +159,93 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     if (item.location && height >= 56) block.append(el("div", "tl-event-time", item.location));
   }
   decorateTask(block, item, ctx.toggleTask);
-  makeOpenable(block, item);
+  makeOpenable(block, item, ctx.openItem);
+  if (item.editable && item.kind === "event") enableDrag(block, item, ctx);
   return block;
+}
+
+/** Same local time of day, `days` later, plus `minutes`. Safe across DST changes. */
+function shift(d: Date, days: number, minutes: number): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, d.getHours(), d.getMinutes() + minutes);
+}
+
+/**
+ * Lets an event be dragged to another time (or day, in week view), or made
+ * longer or shorter by dragging its bottom edge. Mouse and trackpad only: on
+ * touch screens a finger drag scrolls the view.
+ */
+function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): void {
+  block.classList.add("editable");
+  block.addEventListener("pointerdown", (down) => {
+    if (down.pointerType !== "mouse" || down.button !== 0) return;
+    const resizing = down.clientY > block.getBoundingClientRect().bottom - RESIZE_HANDLE;
+    const columns = [...(block.closest(".tl-grid")?.querySelectorAll<HTMLElement>(".tl-col") ?? [])];
+    const homeColumn = columns.indexOf(block.parentElement as HTMLElement);
+    const start = itemStart(item);
+    const end = itemEnd(item);
+    const top = parseFloat(block.style.top);
+    const height = parseFloat(block.style.height);
+    const label = block.querySelector<HTMLElement>(".tl-event-time");
+    let minutes = 0;
+    let days = 0;
+    let dragging = false;
+
+    const times = (): [Date, Date] =>
+      resizing ? [start, shift(end, 0, minutes)] : [shift(start, days, minutes), shift(end, days, minutes)];
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== down.pointerId) return;
+      const dy = e.clientY - down.clientY;
+      if (!dragging) {
+        if (Math.hypot(e.clientX - down.clientX, dy) < DRAG_THRESHOLD) return;
+        dragging = true;
+        block.classList.add("dragging");
+      }
+      minutes = Math.round(dy / HOUR_HEIGHT * 60 / SNAP_MINUTES) * SNAP_MINUTES;
+      if (resizing) {
+        // At least one step long.
+        minutes = Math.max(minutes, SNAP_MINUTES - Math.round((end.getTime() - start.getTime()) / MS_PER_MINUTE));
+        block.style.height = `${Math.max(MIN_EVENT_HEIGHT, height + minutes * HOUR_HEIGHT / 60)}px`;
+      } else {
+        const over = columns.findIndex((column) => {
+          const rect = column.getBoundingClientRect();
+          return e.clientX >= rect.left && e.clientX < rect.right;
+        });
+        if (over >= 0 && over - homeColumn !== days) {
+          days = over - homeColumn;
+          columns[over].append(block);
+        }
+        block.style.top = `${top + minutes * HOUR_HEIGHT / 60}px`;
+      }
+      const [newStart, newEnd] = times();
+      if (label) label.textContent = `${timeFormat.format(newStart)} – ${timeFormat.format(newEnd)}`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== down.pointerId) return;
+      if (e.type === "pointercancel") minutes = days = 0;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (!dragging) return;
+      // Wait for the click that follows, so it doesn't open the details.
+      window.setTimeout(() => {
+        const [newStart, newEnd] = times();
+        if (newStart.getTime() === start.getTime() && newEnd.getTime() === end.getTime()) {
+          block.classList.remove("dragging");
+          ctx.moveEvent(item, start, end); // puts it back where it was
+        } else {
+          ctx.moveEvent(item, newStart, newEnd);
+        }
+      });
+    };
+
+    // On the window, not the block: moving the block to another day's column
+    // would end pointer capture and lose the rest of the drag.
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  });
 }
 
 function dayColumn(ctx: ViewContext, day: Date): HTMLElement {

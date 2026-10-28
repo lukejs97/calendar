@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AgendaItem } from "./api";
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) {
@@ -36,19 +35,17 @@ export function decorateTask(node: HTMLElement, item: AgendaItem, onToggle: (ite
   node.prepend(check);
 }
 
-/** Opens the item in its own web app (Google Calendar, Todoist) on click or Enter. */
-export function makeOpenable(node: HTMLElement, item: AgendaItem): void {
+/** Shows the item's details (`open`) on click or Enter. */
+export function makeOpenable(node: HTMLElement, item: AgendaItem, open: (item: AgendaItem) => void): void {
   node.title = item.title;
-  if (!item.url) return;
-  const url = item.url;
   node.tabIndex = 0;
-  node.role = "link";
-  node.title = `${item.title}\nOpen in ${item.source === "todoist" ? "Todoist" : "Google Calendar"}`;
+  node.role = "button";
   node.addEventListener("click", (e) => {
     e.stopPropagation();
-    openUrl(url);
+    // The click that ends dragging an event isn't a request to open it.
+    if (!node.classList.contains("dragging")) open(item);
   });
   node.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") openUrl(url);
+    if (e.key === "Enter") open(item);
   });
 }

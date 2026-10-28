@@ -6,27 +6,41 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Local, NaiveDate};
 use futures::future::join_all;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
 use crate::google::{self, auth::GoogleAuth};
 use crate::{secrets, todoist};
 
-#[derive(Serialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Google,
     Todoist,
 }
 
-#[derive(Serialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemKind {
     Event,
     Task,
 }
 
-#[derive(Serialize)]
+/// Someone invited to an event.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Attendee {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    /// "accepted", "declined", "tentative" or "needsAction".
+    pub response: Option<String>,
+    pub organizer: bool,
+    pub is_self: bool,
+}
+
+// Deserialize: items are also saved to disk for offline use (see cache.rs).
+// Fields added later have `default`, so older saved items still load.
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AgendaItem {
     /// Unique across sources, e.g. "google:<calendarId>:<eventId>".
@@ -53,6 +67,32 @@ pub struct AgendaItem {
     pub overdue: bool,
     /// Tasks only: 1 (most urgent) to 4, as numbered in the Todoist app.
     pub priority: Option<u8>,
+    /// Google events: the account and calendar they're on, and their ID there.
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub calendar_id: Option<String>,
+    #[serde(default)]
+    pub event_id: Option<String>,
+    /// Google events the app may move: on a calendar you can edit, organized
+    /// by you (or open to changes by guests), in an account that allowed the
+    /// app to edit events.
+    #[serde(default)]
+    pub editable: bool,
+    /// One occurrence of a repeating event.
+    #[serde(default)]
+    pub recurring: bool,
+    /// Notes. Google's may contain simple HTML.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub attendees: Vec<Attendee>,
+    /// Video call link: Google Meet, Zoom, Teams, Webex and the like.
+    #[serde(default)]
+    pub conference_url: Option<String>,
+    /// When to alert, in minutes before the start. Timed Google events only.
+    #[serde(default)]
+    pub reminders: Vec<u32>,
 }
 
 #[derive(Serialize)]
@@ -91,7 +131,9 @@ pub async fn load(
     // Fetch from every Google account and Todoist at the same time.
     let google = join_all(accounts.iter().map(|email| async move {
         let token = google_auth.access_token(email).await?;
-        google::calendar::events_between(http, &token, local_midnight(from), local_midnight(to)).await
+        let can_edit = google_auth.can_edit_events(email).await?;
+        google::calendar::events_between(http, &token, email, can_edit, local_midnight(from), local_midnight(to))
+            .await
     }));
     let tasks = async {
         match &todoist_token {
