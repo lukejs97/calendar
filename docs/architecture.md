@@ -84,12 +84,15 @@ Design rules:
 - New Rust commands: `create_event` (POST `calendars/{id}/events`) and
   `create_task` (Todoist).
 
-## Later: custom logo, branding and design
+## Later: branding and design
 
-The app icon in `src-tauri/icons/` is still Tauri's placeholder. Plan:
-
-- **Logo:** make one square 1024×1024 PNG or SVG, then run
-  `npm run tauri icon <file>` to generate every platform size.
+- **Logo (done):** the sources are in `src-tauri/icons/source/`:
+  `icon-mac.svg` (rounded tile with margins, for Mac and Windows) and
+  `icon-ios.svg` (full square; iOS rounds the corners itself). After editing,
+  run `npm run tauri icon src-tauri/icons/source/icon-mac.svg`, then copy the
+  `ios/` images generated from `icon-ios.svg` into
+  `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` (iOS icons must
+  not have transparency).
 - **Name:** update `productName` and the window `title` in
   `src-tauri/tauri.conf.json`. Changing `identifier` would also move the
   keychain entry (`SERVICE` in `secrets.rs`), so you'd sign in again once.
