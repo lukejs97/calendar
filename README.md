@@ -8,27 +8,41 @@ It runs on Windows and macOS.
 Week, Month, Year and Agenda views.
 
 **Add events and tasks**: click **+** in the top bar (or press `N`) and type
-something like "Lunch with Sam tomorrow 1pm at Cafe Roma" or "Conference Nov
-12-14 in Berlin". A preview shows what the app understood; pick the calendar
-and click **Add**. Switch to **Task** to add a Todoist task instead ("Submit
-expenses Friday p1"; no date means no due date). Accounts added before this
-feature existed need adding again once (Accounts → Add account) to give
-permission.
+something like "Lunch with Sam tomorrow 1pm at Cafe Roma", "Standup every
+weekday at 9:30 with ana@example.com" or "Conference Nov 12-14 in Berlin,
+remind me 1 day before". The fields below fill in as you type; change any of
+them by hand (title, times, all day, place, repeat, alert, guests, notes,
+calendar) and click **Add**. Switch to **Task** to add a Todoist task instead
+("Submit expenses Friday p1", "Pay rent every month on the 1st"; no date means
+no due date). Accounts added before this feature existed need adding again
+once (Accounts → Add account) to give permission.
+
+**Edit and delete**: click an event or task, then **Edit** or **Delete**. For
+a repeating event, choose this event only or all of them. Guests are emailed
+about changes if you tick the box.
 
 **Event details**: click an event or task for its time, place (with a map
 link), a **Join** button for Google Meet, Zoom, Teams or Webex calls, guests
 and their replies, and notes.
 
-**Move events**: in Day and Week view, drag an event to another time or day,
-or drag its bottom edge to make it longer or shorter (15-minute steps; with a
-mouse or trackpad). Only events you may change can be dragged.
+**Move events and tasks**: in Day and Week view, drag an event to another
+time or day, or drag its bottom edge to make it longer or shorter (15-minute
+steps; with a mouse or trackpad). In Month view and the all-day row, drag
+anything to another day. Tasks move the same way (not repeating ones). Only
+events you may change can be dragged.
 
 **Search**: the magnifier in the top bar (or `/`, or Cmd/Ctrl+F) searches
 events and tasks from a year back to a year ahead.
 
+**Menu bar** (Mac; notification area on Windows): click the Minuteman icon
+for a small month calendar with the next few days, and **+** to add. Press
+`⌥⌘N` (Ctrl+Alt+N on Windows) in any app to add an event. Closing the main
+window keeps Minuteman running there; quit from the icon's right-click menu
+or with ⌘Q.
+
 **Alerts**: on the Mac and Windows, the app pops up a notification at each
-event's reminder times from Google Calendar (e.g. 10 minutes before), while
-it's open.
+event's reminder times from Google Calendar (e.g. 10 minutes before), also
+with its window closed, as long as it's running in the menu bar.
 
 **Offline**: the app keeps what it last loaded, opens with it straight away,
 and shows it (and searches it) when there's no internet.

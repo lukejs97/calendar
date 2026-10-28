@@ -12,11 +12,12 @@
 │ time.ts    date helpers shared by all views         │
 │ api.ts     typed invoke() wrappers                  │
 │ settings.ts Google accounts and Todoist dialogs     │
-│ quick-add.ts "New" event/task dialog; quick-parse.ts│
-│            reads the sentence (chrono-node)         │
-│ details.ts event/task details popup                 │
+│ event-form.ts New/Edit event or task form;          │
+│            quick-parse.ts reads the sentence        │
+│ details.ts event/task details, Edit and Delete      │
 │ search.ts  search window                            │
-│ alerts.ts  notifications before events (desktop)    │
+│ flyout.ts  the menu bar window (desktop)            │
+│ sync.ts    tells the other window about changes     │
 │ dev-mock.ts sample data for `npm run dev` in a      │
 │            browser (dev only)                       │
 └───────────────────────┬─────────────────────────────┘
@@ -29,6 +30,8 @@
 │ todoist.rs         Todoist API v1: tasks, add, done │
 │ search.rs          search across accounts/Todoist   │
 │ cache.rs           saved items for offline use      │
+│ desktop.rs         menu bar icon + window, ⌥⌘N      │
+│ alerts.rs          notifications before events      │
 │ secrets.rs         OS keychain                      │
 │ error.rs           AppError → { kind, message }     │
 └─────────────────────────────────────────────────────┘
@@ -44,25 +47,29 @@ Design rules:
    (`google`, `todoist`) and `kind` (`event`, `task`). New sources
    add items to the list; the UI doesn't need to know where they came from.
 3. **Views are plain functions.** Each view takes a `ViewContext` (items plus
-   date range) and draws into an element. The tray flyout can reuse
-   `renderAgenda` or `renderTimeline` with a one-day range.
+   date range) and draws into an element. The menu bar window reuses
+   `renderAgenda`.
 4. **The backend serves any date range.** `get_agenda(from, to)` takes local
    dates. Each view decides its own range (a week, six weeks for a month grid,
    a year).
 
-## Phase 2: tray icon and flyout
+## Menu bar, quick add shortcut, background alerts (done)
 
-- Enable Tauri's `tray-icon` feature in `Cargo.toml` and build a `TrayIconBuilder`
-  in `lib.rs` `setup`.
-- Add a second window, label `flyout`, to `tauri.conf.json`: `decorations: false`,
-  `skipTaskbar: true`, `alwaysOnTop: true`, `visible: false`, about 360×480.
-  It loads the same `index.html?view=flyout`, and `main.ts` chooses a compact layout.
-- On tray click, use `tauri-plugin-positioner` (`Position::TrayBottomCenter`
-  on Windows, `TrayCenter` on macOS) to place the window above the taskbar
-  or below the menu bar, then show and focus it. Hide it on blur.
-- Add `"flyout"` to the `windows` list in `capabilities/default.json`.
-- Optionally keep the app running when the main window closes (handle
-  `CloseRequested` → hide) so the tray stays available.
+Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
+
+- A `TrayIconBuilder` icon (`icons/tray.png`, a template image macOS tints
+  for light or dark menu bars). Left click toggles the `flyout` window;
+  right click shows Open / New Event… / Quit.
+- The `flyout` window is built in `setup` (380×600, no frame, always on
+  top, hidden) and loads the same page with `window.__MINUTEMAN_FLYOUT__`
+  set, so `main.ts` hands over to `flyout.ts`. `tauri-plugin-positioner`
+  puts it under the icon; it hides when it loses focus or on Esc.
+- `tauri-plugin-global-shortcut` registers ⌥⌘N, which shows the flyout
+  and emits `flyout-new` to open New event in it.
+- Closing the main window hides it (`CloseRequested` → `prevent_close`);
+  `RunEvent::Reopen` (Dock click) shows it again.
+- `sync.ts`: each window emits `agenda-changed` after a change, and the
+  other reloads.
 
 ## Todoist (done)
 
@@ -79,31 +86,28 @@ Design rules:
 - Limits for now: recurring tasks show only their next occurrence (that's all
   the API returns), and tasks completed elsewhere aren't shown.
 
-## Phase 3: natural-language creation
+## Adding and editing (done)
 
-Done for Google events:
-
-- **+** in the top bar (or `N`) opens `quick-add.ts`. `quick-parse.ts` reads
-  the sentence locally with [`chrono-node`](https://github.com/wanasit/chrono)
-  (English only): the date and time, a range ("9-10:30am", "Nov 12-14"), a
-  length ("for 30 min", default 1 hour), and a place at the end ("at Cafe
-  Roma", "in Berlin", "@ the park"; after "at"/"in" only a capitalised word or
-  number counts). A bare hour from 1 to 7 means pm. No date means all day today.
-  A live preview shows what will be saved.
-- The calendar picker lists calendars you own or can edit, by account
-  (`event_calendars`), and remembers the last one used.
-- `create_event` POSTs to `calendars/{id}/events`. The `calendar.events`
-  scope is in `google/auth.rs`; the token's granted scopes say whether an
-  account allowed it (`can_edit_events`). Accounts added before need adding
-  again once.
-
-Tasks: the dialog's Event/Task switch sends the item to Todoist instead
-(`create_task`, POST `/api/v1/tasks`), into the chosen project (Inbox
-first). `parseTask` keeps a place as part of the name, allows no date (no
-due date), and reads "p1"–"p4" as the priority.
-
-Still to do: repeating events ("every Monday"), inviting guests, and
-editing titles or deleting events.
+- **+** in the top bar (or `N`) opens `event-form.ts`. The sentence box at
+  the top is read locally by `quick-parse.ts` with
+  [`chrono-node`](https://github.com/wanasit/chrono) (English only): date and
+  time, a range ("9-10:30am", "Nov 12-14"), a length ("for 30 min", default
+  1 hour), a place ("at Cafe Roma", "in Berlin"), a repeat ("every weekday",
+  "every 2 weeks", "monthly on the 1st"), an alert ("remind me 30 min
+  before", "no alert") and guests (email addresses). It fills the fields
+  below, except ones edited by hand. A bare hour from 1 to 7 means pm.
+- Events: `create_event` POSTs to `calendars/{id}/events` (with
+  `recurrence` RRULEs, `reminders` and `attendees`; guests are emailed).
+  `update_event` PATCHes only the fields that changed and can move the event
+  to another calendar first; `delete_event` DELETEs. For one occurrence of
+  a repeating event, "all events" uses `seriesId`. The `calendar.events`
+  scope is in `google/auth.rs`; accounts added before need adding again
+  once.
+- Tasks go to Todoist (`create_task`, `update_task`, `delete_task`), into
+  the chosen project (Inbox first). Repeats are sent as Todoist's own words
+  (`due_string`, e.g. "every month on the 1st"); "p1"–"p4" set the priority.
+  Repeating tasks can't be moved or have their date changed here (Todoist
+  would end the repeat).
 
 ## Details, moving, search, alerts, offline (done)
 
@@ -115,19 +119,21 @@ editing titles or deleting events.
 - **Moving** (`views/timeline.ts`): mouse/trackpad drag in day and week
   views, in 15-minute steps; the bottom 7px resize. Pointer moves are
   listened for on the window, because moving the block to another day's
-  column ends pointer capture. `move_event` PATCHes start and end; one
-  occurrence of a repeating event changes only that occurrence.
+  column ends pointer capture. `set_event_times` PATCHes start and end; one
+  occurrence of a repeating event changes only that occurrence. Month view
+  and the all-day row move items by whole days (`views/drag.ts`); tasks use
+  `set_task_due`.
   `AgendaItem.editable` = account granted `calendar.events` + calendar
   owner/writer + organized by you (or `guestsCanModify`).
 - **Search** (`search.rs`): Google's `q` per calendar for a year either
   side; Todoist tasks matched locally on every word; the offline cache
   when nothing is reachable. 50 results each side of now.
-- **Alerts** (`alerts.ts`): every 30 s, today's and tomorrow's timed events
-  are checked against their popup reminders (the event's own, or the
-  calendar's defaults). Alerts more than 2 minutes late are skipped (after
-  sleep). Desktop only via `tauri-plugin-notification`, whose permission
-  is in `capabilities/desktop.json` (limited to desktop platforms, so the
-  iOS build doesn't need the plugin). iPhone alerts would need scheduling
+- **Alerts** (`alerts.rs`): a background task checks every 30 s today's and
+  tomorrow's timed events against their popup reminders (the event's own,
+  or the calendar's defaults), reloading every 5 minutes or after a change
+  made in the app. Alerts more than 2 minutes late are skipped (after
+  sleep). It runs in Rust, so it keeps going with no window open. Desktop
+  only via `tauri-plugin-notification`; iPhone alerts would need scheduling
   ahead with iOS.
 - **Offline** (`cache.rs`): each successful fetch replaces the saved items
   in its range for the sources that loaded; `get_agenda` falls back to them

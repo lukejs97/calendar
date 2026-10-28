@@ -231,7 +231,8 @@ export function parseEvent(text: string, now: Date, { forTask = false } = {}): P
   let location: string | null = null;
   const place = forTask ? null : LOCATION.exec(rest);
   if (place) {
-    location = (place[1] ?? place[2]).trim();
+    // "in Berlin, remind me…": the comma was before the cut-out words.
+    location = (place[1] ?? place[2]).trim().replace(/[\s,;]+$/, "");
     rest = rest.slice(0, place.index);
   }
 
