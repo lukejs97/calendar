@@ -1,11 +1,13 @@
-//! Google sign-in for a "Desktop app" OAuth client.
+//! Google sign-in (OAuth 2.0 authorization code + PKCE).
 //!
-//! Flow (OAuth 2.0 authorization code + PKCE, loopback redirect):
-//! 1. Start a tiny one-shot web server on 127.0.0.1 at a random free port.
-//! 2. Open Google's consent page in the user's browser, asking Google to send
-//!    the browser back to that local address afterwards.
-//! 3. Google redirects to `http://127.0.0.1:<port>/?code=...`; we read the code.
-//! 4. Swap the code (plus the PKCE verifier) for tokens.
+//! 1. Open Google's consent page in the browser, telling Google where to send
+//!    the browser back to afterwards (the "redirect URI").
+//! 2. Google redirects there with a one-time `code`; the app picks it up:
+//!    - desktop ("Desktop app" client): a tiny web server on 127.0.0.1
+//!      (see `loopback.rs`);
+//!    - iPhone ("iOS" client): a custom URL scheme only this app answers to,
+//!      which iOS hands to the app as a deep link (`handle_redirect_url`).
+//! 3. Swap the code (plus the PKCE verifier) for tokens.
 //!
 //! The long-lived refresh token goes to the OS keychain. The short-lived
 //! access token (about an hour) only ever lives in memory.
@@ -17,11 +19,9 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 use url::Url;
 
 use crate::error::{AppError, Result};
@@ -43,14 +43,16 @@ const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 struct OAuthClient {
     id: &'static str,
     /// Google requires this for Desktop clients even with PKCE. It ships inside
-    /// the app, so Google does not treat it as a real secret for this client type.
-    secret: &'static str,
+    /// the app, so Google does not treat it as a real secret for this client
+    /// type. iOS clients have none.
+    secret: Option<&'static str>,
 }
 
+#[cfg(desktop)]
 fn oauth_client() -> Result<OAuthClient> {
     match (option_env!("GOOGLE_CLIENT_ID"), option_env!("GOOGLE_CLIENT_SECRET")) {
         (Some(id), Some(secret)) if !id.is_empty() && !secret.is_empty() => {
-            Ok(OAuthClient { id, secret })
+            Ok(OAuthClient { id, secret: Some(secret) })
         }
         _ => Err(AppError::Config(
             "The Google OAuth client isn't configured. Copy src-tauri/.env.example to \
@@ -58,6 +60,43 @@ fn oauth_client() -> Result<OAuthClient> {
                 .into(),
         )),
     }
+}
+
+#[cfg(mobile)]
+fn oauth_client() -> Result<OAuthClient> {
+    match option_env!("GOOGLE_IOS_CLIENT_ID") {
+        Some(id) if !id.is_empty() => Ok(OAuthClient { id, secret: None }),
+        _ => Err(AppError::Config(
+            "The Google iOS client isn't configured. Add GOOGLE_IOS_CLIENT_ID to \
+             src-tauri/.env and rebuild."
+                .into(),
+        )),
+    }
+}
+
+/// Where Google sends an iOS app back to: the client ID reversed, as a URL
+/// scheme ("1234-abc.apps.googleusercontent.com" becomes
+/// "com.googleusercontent.apps.1234-abc:/oauth2redirect"). The same scheme is
+/// registered for the app in tauri.conf.json (plugins → deep-link).
+#[cfg(mobile)]
+fn ios_redirect_uri(client_id: &str) -> String {
+    let scheme: Vec<&str> = client_id.split('.').rev().collect();
+    format!("{}:/oauth2redirect", scheme.join("."))
+}
+
+/// Reads Google's reply (the URL it redirected to). Returns `None` if the URL
+/// isn't a reply at all, e.g. a browser asking for /favicon.ico.
+pub(super) fn code_from_redirect(url: &Url, expected_state: &str) -> Option<Result<String>> {
+    let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    if let Some(error) = params.get("error") {
+        // "access_denied" means the user clicked Cancel.
+        return Some(Err(AppError::Auth(format!("Google returned \"{error}\""))));
+    }
+    let code = params.get("code")?;
+    if params.get("state").map(String::as_str) != Some(expected_state) {
+        return Some(Err(AppError::Auth("the sign-in response didn't match this request".into())));
+    }
+    Some(Ok(code.clone()))
 }
 
 #[derive(Deserialize)]
@@ -101,11 +140,31 @@ impl AccessToken {
 pub struct GoogleAuth {
     http: reqwest::Client,
     access_token: Mutex<Option<AccessToken>>,
+    /// iOS: while a sign-in is waiting, where to deliver Google's redirect.
+    #[cfg(mobile)]
+    pending_redirect: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Url>>>,
 }
 
 impl GoogleAuth {
     pub fn new(http: reqwest::Client) -> Self {
-        GoogleAuth { http, access_token: Mutex::new(None) }
+        GoogleAuth {
+            http,
+            access_token: Mutex::new(None),
+            #[cfg(mobile)]
+            pending_redirect: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// iOS: called with every URL the app is opened with (deep links). Passes
+    /// Google's sign-in redirect to the waiting `sign_in`.
+    #[cfg(mobile)]
+    pub fn handle_redirect_url(&self, url: &Url) {
+        if !url.path().ends_with("oauth2redirect") {
+            return;
+        }
+        if let Some(waiting) = self.pending_redirect.lock().expect("not poisoned").take() {
+            let _ = waiting.send(url.clone());
+        }
     }
 
     /// True if a refresh token is in the keychain. Doesn't touch the network.
@@ -127,12 +186,10 @@ impl GoogleAuth {
             secrets::get(secrets::GOOGLE_REFRESH_TOKEN)?.ok_or(AppError::NotSignedIn)?;
         let client = oauth_client()?;
         let tokens = match self
-            .post_token(&[
-                ("client_id", client.id),
-                ("client_secret", client.secret),
-                ("refresh_token", refresh_token.as_str()),
-                ("grant_type", "refresh_token"),
-            ])
+            .post_token(
+                &client,
+                &[("refresh_token", refresh_token.as_str()), ("grant_type", "refresh_token")],
+            )
             .await?
         {
             Ok(tokens) => tokens,
@@ -163,9 +220,12 @@ impl GoogleAuth {
         // Echoed back by Google; guards against a forged redirect.
         let state = random_urlsafe(16);
 
-        // Port 0 = "any free port". Desktop clients accept any loopback port.
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-        let redirect_uri = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
+        #[cfg(desktop)]
+        let loopback = super::loopback::Loopback::bind().await?;
+        #[cfg(desktop)]
+        let redirect_uri = loopback.redirect_uri.clone();
+        #[cfg(mobile)]
+        let redirect_uri = ios_redirect_uri(client.id);
 
         let mut auth_url = Url::parse(AUTH_URL).expect("valid URL");
         auth_url
@@ -182,23 +242,39 @@ impl GoogleAuth {
             .append_pair("access_type", "offline")
             .append_pair("prompt", "consent");
 
+        #[cfg(mobile)]
+        let redirect = {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            *self.pending_redirect.lock().expect("not poisoned") = Some(sender);
+            receiver
+        };
+
         app.opener()
             .open_url(auth_url.as_str(), None::<&str>)
             .map_err(|e| AppError::Auth(format!("couldn't open the browser: {e}")))?;
 
-        let code = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_redirect(listener, state))
+        #[cfg(desktop)]
+        let waiting = loopback.wait_for_code(state);
+        #[cfg(mobile)]
+        let waiting = async {
+            let url = redirect.await.map_err(|_| AppError::Auth("sign-in was interrupted".into()))?;
+            code_from_redirect(&url, &state)
+                .unwrap_or_else(|| Err(AppError::Auth("Google's reply had no sign-in code".into())))
+        };
+        let code = tokio::time::timeout(SIGN_IN_TIMEOUT, waiting)
             .await
             .map_err(|_| AppError::Auth("timed out waiting for the browser".into()))??;
 
         let tokens = self
-            .post_token(&[
-                ("client_id", client.id),
-                ("client_secret", client.secret),
-                ("code", code.as_str()),
-                ("code_verifier", verifier.as_str()),
-                ("grant_type", "authorization_code"),
-                ("redirect_uri", redirect_uri.as_str()),
-            ])
+            .post_token(
+                &client,
+                &[
+                    ("code", code.as_str()),
+                    ("code_verifier", verifier.as_str()),
+                    ("grant_type", "authorization_code"),
+                    ("redirect_uri", redirect_uri.as_str()),
+                ],
+            )
             .await??;
 
         let refresh_token = tokens
@@ -208,8 +284,10 @@ impl GoogleAuth {
         secrets::set(secrets::GOOGLE_REFRESH_TOKEN, refresh_token)?;
         *self.access_token.lock().await = Some(AccessToken::from_response(&tokens));
 
-        // The browser has focus now; bring the app back to the front.
-        if let Some(window) = app.get_webview_window("main") {
+        // The browser has focus now; bring the app back to the front. (On iOS,
+        // following the redirect already switched back to the app.)
+        #[cfg(desktop)]
+        if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
             let _ = window.unminimize();
             let _ = window.set_focus();
         }
@@ -227,95 +305,27 @@ impl GoogleAuth {
         Ok(())
     }
 
-    /// POSTs to Google's token endpoint. The outer `Result` is for transport
-    /// failures; the inner one is Google's answer.
+    /// POSTs to Google's token endpoint, adding the client's ID (and secret,
+    /// if it has one). The outer `Result` is for transport failures; the inner
+    /// one is Google's answer.
     async fn post_token(
         &self,
+        client: &OAuthClient,
         form: &[(&str, &str)],
     ) -> Result<std::result::Result<TokenResponse, TokenError>> {
-        let response = self.http.post(TOKEN_URL).form(form).send().await?;
+        let mut fields = vec![("client_id", client.id)];
+        if let Some(secret) = client.secret {
+            fields.push(("client_secret", secret));
+        }
+        fields.extend_from_slice(form);
+
+        let response = self.http.post(TOKEN_URL).form(&fields).send().await?;
         if response.status().is_success() {
             Ok(Ok(response.json().await?))
         } else {
             Ok(Err(response.json().await?))
         }
     }
-}
-
-/// Serves the loopback address until the browser arrives with Google's
-/// redirect, and returns the authorization code from it.
-async fn wait_for_redirect(listener: TcpListener, expected_state: String) -> Result<String> {
-    let (results, mut received) = mpsc::channel(1);
-    loop {
-        tokio::select! {
-            accepted = listener.accept() => {
-                let (stream, _) = accepted?;
-                let results = results.clone();
-                let expected_state = expected_state.clone();
-                // One task per connection: browsers sometimes open idle
-                // "preconnect" sockets that would otherwise block the real one.
-                tauri::async_runtime::spawn(async move {
-                    if let Some(result) = handle_redirect(stream, &expected_state).await {
-                        let _ = results.send(result).await;
-                    }
-                });
-            }
-            Some(result) = received.recv() => return result,
-        }
-    }
-}
-
-/// Handles one browser request. Returns `None` for requests that aren't the
-/// redirect (e.g. /favicon.ico).
-async fn handle_redirect(stream: TcpStream, expected_state: &str) -> Option<Result<String>> {
-    let mut reader = BufReader::new(stream);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).await.ok()?;
-    let mut stream = reader.into_inner();
-
-    // e.g. "GET /?state=...&code=...&scope=... HTTP/1.1"
-    let target = request_line.split_whitespace().nth(1)?;
-    let params: HashMap<String, String> = Url::parse(&format!("http://127.0.0.1{target}"))
-        .ok()?
-        .query_pairs()
-        .into_owned()
-        .collect();
-
-    let result = if let Some(error) = params.get("error") {
-        // "access_denied" means the user clicked Cancel.
-        Err(AppError::Auth(format!("Google returned \"{error}\"")))
-    } else if let Some(code) = params.get("code") {
-        if params.get("state").map(String::as_str) == Some(expected_state) {
-            Ok(code.clone())
-        } else {
-            Err(AppError::Auth("the sign-in response didn't match this request".into()))
-        }
-    } else {
-        let _ = respond(&mut stream, "404 Not Found", "").await;
-        return None;
-    };
-
-    let message = match &result {
-        Ok(_) => "<h2>You're signed in.</h2><p>You can close this tab and return to Calendar.</p>",
-        Err(_) => "<h2>Sign-in didn't complete.</h2><p>Return to Calendar and try again.</p>",
-    };
-    let _ = respond(&mut stream, "200 OK", message).await;
-    Some(result)
-}
-
-async fn respond(stream: &mut TcpStream, status: &str, body: &str) -> std::io::Result<()> {
-    let html = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Calendar</title></head>\
-         <body style=\"font-family:system-ui,sans-serif;text-align:center;padding-top:4rem\">\
-         {body}</body></html>"
-    );
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
-         Content-Length: {}\r\nConnection: close\r\n\r\n{html}",
-        html.len()
-    );
-    stream.write_all(response.as_bytes()).await?;
-    stream.shutdown().await
 }
 
 fn random_urlsafe(num_bytes: usize) -> String {

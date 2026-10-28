@@ -48,6 +48,12 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  /* Phones: stay clear of the notch, rounded corners and home bar. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button {
@@ -94,8 +100,20 @@ button:disabled {
 .actions,
 .nav-buttons {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .topbar h1 {
+    font-size: 17px;
+  }
+
+  .actions {
+    gap: 0;
+  }
 }
 
 .icon-button,
@@ -329,7 +347,6 @@ main.loading > * {
   --check-color: #246fe0;
 }
 
-.task-check:hover::after,
 .task-check[aria-checked="true"]::after {
   content: "";
   position: absolute;
@@ -340,6 +357,22 @@ main.loading > * {
   border: solid var(--check-color);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
+}
+
+/* Preview the tick on hover, but only with a mouse: on touch screens hover
+   "sticks" after a tap. */
+@media (hover: hover) {
+  .task-check:hover::after {
+    content: "";
+    position: absolute;
+    left: 3.5px;
+    top: 1px;
+    width: 3px;
+    height: 6px;
+    border: solid var(--check-color);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
 }
 
 .task-check[aria-checked="true"] {
@@ -432,6 +465,8 @@ main.loading > * {
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
+  /* 16px or more, or iOS zooms the page in when the field is tapped. */
+  font-size: 16px;
   color: var(--text);
   background: var(--surface);
 }
@@ -916,4 +951,34 @@ main.loading > * {
   font-weight: 700;
   color: var(--on-accent);
   background: var(--accent);
+}
+
+/* ---------- Touch screens ---------- */
+
+/* Bigger tap targets for fingers (Apple suggests about 44px). */
+@media (pointer: coarse) {
+  .icon-button {
+    padding: 6px 12px;
+  }
+
+  .text-button,
+  .pill-button {
+    padding: 8px 12px;
+  }
+
+  .segmented button {
+    padding: 7px 11px;
+  }
+
+  .item .task-check {
+    width: 22px;
+    height: 22px;
+  }
+
+  .item .task-check[aria-checked="true"]::after {
+    left: 6.5px;
+    top: 3px;
+    width: 5px;
+    height: 10px;
+  }
 }

@@ -85,8 +85,25 @@ pub fn run() {
         .build()
         .expect("failed to build HTTP client");
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // iOS: Google's sign-in redirect comes back as a deep link (a custom URL
+    // scheme that opens this app); pass it to the waiting sign-in.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_deep_link::init()).setup(|app| {
+        use tauri::Manager;
+        use tauri_plugin_deep_link::DeepLinkExt;
+        let handle = app.handle().clone();
+        app.deep_link().on_open_url(move |event| {
+            let state = handle.state::<AppState>();
+            for url in event.urls() {
+                state.google_auth.handle_redirect_url(&url);
+            }
+        });
+        Ok(())
+    });
+
+    builder
         .manage(AppState { google_auth: GoogleAuth::new(http.clone()), http })
         .invoke_handler(tauri::generate_handler![
             auth_status,

@@ -1,11 +1,11 @@
-const OAUTH_KEYS: [&str; 2] = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+const OAUTH_KEYS: [&str; 3] = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_IOS_CLIENT_ID"];
 
 fn main() {
     load_dotenv();
     tauri_build::build()
 }
 
-/// Makes GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET from `src-tauri/.env` available
+/// Makes the Google client IDs and secret from `src-tauri/.env` available
 /// to the app at compile time (read with `option_env!`). Real environment
 /// variables take precedence, which is handy for CI builds.
 fn load_dotenv() {

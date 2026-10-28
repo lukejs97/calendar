@@ -47,7 +47,8 @@ function savedView(): ViewName {
   } catch {
     // Storage unavailable; use the default.
   }
-  return "week";
+  // A whole week is cramped on a phone; start with the list there.
+  return window.matchMedia("(max-width: 640px)").matches ? "agenda" : "week";
 }
 
 function saveView(view: ViewName): void {
@@ -248,6 +249,31 @@ function setUpControls(): void {
     else return;
     e.preventDefault();
   });
+
+  // Swipe left/right (touch screens) to go to the next/previous day, week, etc.
+  let swipe: { x: number; y: number; time: number } | undefined;
+  app.addEventListener(
+    "touchstart",
+    (e) => {
+      const touch = e.touches[0];
+      swipe = e.touches.length === 1 ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : undefined;
+    },
+    { passive: true },
+  );
+  app.addEventListener(
+    "touchend",
+    (e) => {
+      if (!swipe) return;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - swipe.x;
+      const dy = touch.clientY - swipe.y;
+      const quick = Date.now() - swipe.time < 600;
+      swipe = undefined;
+      // Mostly sideways and far enough, so vertical scrolling never flips pages.
+      if (quick && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) step(dx < 0 ? 1 : -1);
+    },
+    { passive: true },
+  );
 
   // Month and year views size themselves to the window, so redraw them on resize.
   let resizeTimer: number | undefined;

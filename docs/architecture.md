@@ -100,6 +100,13 @@ The app icon in `src-tauri/icons/` is still Tauri's placeholder. Plan:
   Google Auth Platform → Branding. Uploading a logo requires Google's brand
   verification once the app is published.
 
+## iPhone (in progress)
+
+Code is prepared; building happens on a Mac. See [ios-setup.md](ios-setup.md).
+Sign-in uses Google's "iOS" client with a custom URL scheme (deep link)
+instead of the desktop loopback server; `#[cfg(desktop)]` / `#[cfg(mobile)]`
+pick the right path at compile time.
+
 ## Mobile later
 
 - **Tauri v2 mobile:** the Rust core and the web UI are reused as they are. `keyring`'s

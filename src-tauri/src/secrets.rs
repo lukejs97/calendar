@@ -5,6 +5,8 @@ use keyring::Entry;
 
 use crate::error::Result;
 
+/// The app's original identifier. Kept after the app ID changed to
+/// com.lukesassa.calendar so existing sign-ins stay where they are.
 const SERVICE: &str = "com.mycalendar.app";
 
 pub const GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
