@@ -57,6 +57,14 @@
 html,
 body {
   height: 100%;
+  /* The page itself never scrolls (only the calendar inside it), so a
+     trackpad can't drag the whole window past its edges and bounce. */
+  overflow: hidden;
+}
+
+/* No bounce past the ends of anything that scrolls, either. */
+* {
+  overscroll-behavior: none;
 }
 
 body {
@@ -66,7 +74,6 @@ body {
   background: var(--bg);
   /* Phones: stay clear of the notch, rounded corners and home bar. */
   padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
 }
