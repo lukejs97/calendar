@@ -15,6 +15,7 @@ import {
   overlaps,
   timeFormat,
 } from "../time";
+import { enableDayDrag } from "./drag";
 import type { ViewContext } from "./types";
 
 const HOUR_HEIGHT = 48; // px
@@ -129,6 +130,21 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     if (item.kind === "event" && itemEnd(item) <= ctx.now) bar.classList.add("past");
     decorateTask(bar, item, ctx.toggleTask);
     makeOpenable(bar, item, ctx.openItem);
+    // Drag along the row to another day; the day headers say which.
+    const dayAt = (x: number) => {
+      const headers = [...row.parentElement!.querySelectorAll<HTMLElement>(".tl-day-header")];
+      const index = headers.findIndex((h) => {
+        const r = h.getBoundingClientRect();
+        return x >= r.left && x < r.right;
+      });
+      return index >= 0 ? days[index] : null;
+    };
+    const highlight = (day: Date | null) => {
+      row.parentElement!.querySelectorAll<HTMLElement>(".tl-day-header").forEach((h, i) =>
+        h.classList.toggle("drop-target", day !== null && isSameDay(days[i], day)),
+      );
+    };
+    enableDayDrag(bar, item, ctx, days[first], dayAt, highlight);
     row.append(bar);
   }
   label.style.gridRow = `1 / span ${Math.max(1, laneEnds.length)}`;
@@ -160,7 +176,7 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
   }
   decorateTask(block, item, ctx.toggleTask);
   makeOpenable(block, item, ctx.openItem);
-  if (item.editable && item.kind === "event") enableDrag(block, item, ctx);
+  if (item.editable) enableDrag(block, item, ctx);
   return block;
 }
 
@@ -175,10 +191,13 @@ function shift(d: Date, days: number, minutes: number): Date {
  * touch screens a finger drag scrolls the view.
  */
 function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): void {
-  block.classList.add("editable");
+  // Events can also be stretched; tasks only moved (their length is optional).
+  const resizable = item.kind === "event";
+  block.classList.add(resizable ? "editable" : "movable");
   block.addEventListener("pointerdown", (down) => {
     if (down.pointerType !== "mouse" || down.button !== 0) return;
-    const resizing = down.clientY > block.getBoundingClientRect().bottom - RESIZE_HANDLE;
+    if ((down.target as Element).closest(".task-check")) return;
+    const resizing = resizable && down.clientY > block.getBoundingClientRect().bottom - RESIZE_HANDLE;
     const columns = [...(block.closest(".tl-grid")?.querySelectorAll<HTMLElement>(".tl-col") ?? [])];
     const homeColumn = columns.indexOf(block.parentElement as HTMLElement);
     const start = itemStart(item);

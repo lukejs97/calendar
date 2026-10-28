@@ -983,6 +983,30 @@ main.loading > * {
   cursor: ns-resize;
 }
 
+.movable {
+  cursor: grab;
+}
+
+/* The copy that follows the pointer while dragging to another day. */
+.drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0.9;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+}
+
+.month-bar.dragging,
+.month-event.dragging,
+.tl-allday-item.dragging {
+  opacity: 0.35;
+}
+
+.month-cell.drop-target,
+.tl-day-header.drop-target {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .tl-event.dragging {
   z-index: 5;
   cursor: grabbing;

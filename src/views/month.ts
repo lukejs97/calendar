@@ -2,6 +2,7 @@
 // "+N more" for the rest.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { enableDayDrag } from "./drag";
 import {
   addDays,
   firstDayOfWeek,
@@ -10,7 +11,9 @@ import {
   itemEnd,
   itemStart,
   itemsOnDay,
+  parseDate,
   timeFormat,
+  toDateString,
 } from "../time";
 import type { ViewContext } from "./types";
 
@@ -18,6 +21,19 @@ import type { ViewContext } from "./types";
 const LINE_HEIGHT = 20;
 
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+
+/** The day cell under the pointer, for dragging items between days. */
+function dayAt(x: number, y: number): Date | null {
+  const cell = document.elementFromPoint(x, y)?.closest<HTMLElement>(".month-cell");
+  return cell?.dataset.date ? parseDate(cell.dataset.date) : null;
+}
+
+function highlight(day: Date | null): void {
+  const date = day ? toDateString(day) : "";
+  for (const cell of document.querySelectorAll<HTMLElement>(".month-cell")) {
+    cell.classList.toggle("drop-target", cell.dataset.date === date);
+  }
+}
 
 function monthEntry(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement {
   let node: HTMLElement;
@@ -45,6 +61,7 @@ function monthEntry(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement 
   if (item.kind === "event" && itemEnd(item) <= ctx.now) node.classList.add("past");
   decorateTask(node, item, ctx.toggleTask);
   makeOpenable(node, item, ctx.openItem);
+  enableDayDrag(node, item, ctx, day, dayAt, highlight);
   return node;
 }
 
@@ -60,6 +77,7 @@ export function renderMonth(root: HTMLElement, ctx: ViewContext): void {
   for (let i = 0; i < 42; i++) {
     const day = addDays(ctx.from, i);
     const cell = el("div", "month-cell");
+    cell.dataset.date = toDateString(day);
     if (day.getMonth() !== month) cell.classList.add("other-month");
     if (isSameDay(day, ctx.now)) cell.classList.add("today");
 
