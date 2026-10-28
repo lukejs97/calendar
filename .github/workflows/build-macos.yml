@@ -86,9 +86,13 @@ jobs:
           mount="$RUNNER_TEMP/dmg"
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" > /dev/null
           app=$(ls -d "$mount"/*.app | head -1)
-          codesign --verify --verbose "$app"
-          codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
-          codesign --display --requirements - "$app" 2>&1 | grep designated || true
+          # Only reports: without a certificate the app isn't signed, as before.
+          if codesign --verify "$app" 2> /dev/null; then
+            codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
+            codesign --display --requirements - "$app" 2>&1 | grep designated || true
+          else
+            echo "Not signed with a certificate: macOS will ask for keychain access after updates (docs/mac-signing.md)."
+          fi
           hdiutil detach "$mount" > /dev/null
 
       - uses: actions/upload-artifact@v4
