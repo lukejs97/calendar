@@ -8,7 +8,7 @@ use crate::error::Result;
 const SERVICE: &str = "com.mycalendar.app";
 
 pub const GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
-// Phase 2: pub const TODOIST_TOKEN: &str = "todoist-token";
+pub const TODOIST_TOKEN: &str = "todoist-token";
 
 pub fn get(key: &str) -> Result<Option<String>> {
     match Entry::new(SERVICE, key)?.get_password() {

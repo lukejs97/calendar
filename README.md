@@ -4,8 +4,21 @@ A free, personal calendar app in the style of Fantastical, built on Google
 Calendar with [Tauri v2](https://tauri.app/) (a Rust core plus a TypeScript web UI).
 It runs on Windows and macOS.
 
-**Phase 1** (this): sign in with Google, and see the next 14 days from all your
-calendars as an agenda list.
+**Phase 1** (this): sign in with Google, and see all your calendars in Day,
+Week, Month, Year and Agenda views.
+
+**Todoist** (optional): click **Todoist** in the top bar and paste your API
+token from Todoist → Settings → Integrations → Developer. Tasks with a due
+date then appear with a checkbox in every view, overdue ones on today. Ticking
+one completes it in Todoist. The token is kept in your OS keychain.
+
+Keyboard: `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `←` `→` go
+back and forward. Click an event to open it in Google Calendar. Click a date
+(in the week header, month grid or year view) to open that day.
+
+To work on the UI without the Rust side, run `npm run dev` and open
+<http://localhost:1420> in a browser. It shows sample events (from
+`src/dev-mock.ts`, which isn't included in real builds).
 For what comes next and how the code is organized, see [docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites

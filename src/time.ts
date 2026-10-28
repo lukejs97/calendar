@@ -1,0 +1,98 @@
+// Date helpers shared by all views. Everything is in local time.
+import type { AgendaItem } from "./api";
+
+export const MS_PER_MINUTE = 60 * 1000;
+export const MS_PER_DAY = 24 * 60 * MS_PER_MINUTE;
+
+/** Parses "YYYY-MM-DD" as local midnight (`new Date("2026-10-27")` would be UTC). */
+export function parseDate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** Formats a date as "YYYY-MM-DD" in local time. */
+export function toDateString(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function addDays(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+/** Moves by whole months, keeping the day where possible (Jan 31 + 1 month = Feb 28/29). */
+export function addMonths(d: Date, n: number): Date {
+  const target = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const daysInTarget = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return new Date(target.getFullYear(), target.getMonth(), Math.min(d.getDate(), daysInTarget));
+}
+
+/** Whole calendar days from `a` to `b`. Rounding absorbs DST's 23/25-hour days. */
+export function daysBetween(a: Date, b: Date): number {
+  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / MS_PER_DAY);
+}
+
+export const isSameDay = (a: Date, b: Date) => daysBetween(a, b) === 0;
+
+/** First day of the week from the system locale: 0 = Sunday … 6 = Saturday. */
+export const firstDayOfWeek: number = (() => {
+  try {
+    // getWeekInfo() is the current name; older engines expose a weekInfo property.
+    const locale = new Intl.Locale(navigator.language) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    const info = locale.getWeekInfo?.() ?? locale.weekInfo;
+    if (info) return info.firstDay % 7; // Intl counts 1 = Monday … 7 = Sunday
+  } catch {
+    // Fall back to Sunday below.
+  }
+  return 0;
+})();
+
+export function startOfWeek(d: Date): Date {
+  const day = startOfDay(d);
+  return addDays(day, -((day.getDay() - firstDayOfWeek + 7) % 7));
+}
+
+export const itemStart = (item: AgendaItem) =>
+  item.allDay ? parseDate(item.start) : new Date(item.start);
+
+export function itemEnd(item: AgendaItem): Date {
+  if (item.end) return item.allDay ? parseDate(item.end) : new Date(item.end);
+  return item.allDay ? addDays(itemStart(item), 1) : itemStart(item);
+}
+
+/** All-day items, and timed ones lasting a day or more: drawn as bars, not in the hour grid. */
+export function isAllDayLike(item: AgendaItem): boolean {
+  return item.allDay || itemEnd(item).getTime() - itemStart(item).getTime() >= MS_PER_DAY;
+}
+
+/** Whether the item overlaps [from, to). A zero-length event counts at its start time. */
+export function overlaps(item: AgendaItem, from: Date, to: Date): boolean {
+  const start = itemStart(item).getTime();
+  const end = Math.max(itemEnd(item).getTime(), start + 1);
+  return start < to.getTime() && end > from.getTime();
+}
+
+/** Order within a day: bars first (earliest, then longest), then timed items by start. */
+export function compareForDay(a: AgendaItem, b: AgendaItem): number {
+  const barA = isAllDayLike(a);
+  if (barA !== isAllDayLike(b)) return barA ? -1 : 1;
+  return (
+    itemStart(a).getTime() - itemStart(b).getTime() ||
+    itemEnd(b).getTime() - itemEnd(a).getTime() ||
+    a.title.localeCompare(b.title)
+  );
+}
+
+export function itemsOnDay(items: AgendaItem[], day: Date): AgendaItem[] {
+  const next = addDays(day, 1);
+  return items.filter((item) => overlaps(item, day, next)).sort(compareForDay);
+}
+
+export const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });

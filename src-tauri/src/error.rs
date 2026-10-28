@@ -11,6 +11,8 @@ pub enum AppError {
     Config(String),
     #[error("Sign-in failed: {0}")]
     Auth(String),
+    #[error("Invalid request: {0}")]
+    InvalidInput(String),
     #[error("Google API error ({status}): {message}")]
     Api { status: u16, message: String },
     #[error("Network error: {0}")]
@@ -27,6 +29,7 @@ impl AppError {
             AppError::NotSignedIn => "notSignedIn",
             AppError::Config(_) => "config",
             AppError::Auth(_) => "auth",
+            AppError::InvalidInput(_) => "input",
             AppError::Api { .. } => "api",
             AppError::Http(_) => "network",
             AppError::Keychain(_) => "keychain",

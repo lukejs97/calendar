@@ -11,14 +11,24 @@
   <body>
     <header class="topbar">
       <div>
-        <h1>Agenda</h1>
+        <h1 id="title">Calendar</h1>
         <p id="account" class="account"></p>
       </div>
       <div id="actions" class="actions" hidden>
         <button id="refresh" class="icon-button" title="Refresh" aria-label="Refresh">&#x21bb;</button>
+        <button id="todoist" class="text-button" title="Connect Todoist">Todoist</button>
         <button id="sign-out" class="text-button">Sign out</button>
       </div>
     </header>
-    <main id="app" aria-live="polite"></main>
+    <nav id="toolbar" class="toolbar" aria-label="Calendar navigation" hidden>
+      <div class="nav-buttons">
+        <button id="today" class="pill-button" title="Today (T)">Today</button>
+        <button id="prev" class="icon-button" title="Previous (&#x2190;)" aria-label="Previous">&#x2039;</button>
+        <button id="next" class="icon-button" title="Next (&#x2192;)" aria-label="Next">&#x203a;</button>
+      </div>
+      <div id="view-switcher" class="segmented" role="group" aria-label="View"></div>
+    </nav>
+    <div id="banner" aria-live="polite"></div>
+    <main id="app"></main>
   </body>
 </html>

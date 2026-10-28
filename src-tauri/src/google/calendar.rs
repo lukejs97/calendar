@@ -80,7 +80,7 @@ struct ApiErrorDetail {
     message: String,
 }
 
-pub struct Upcoming {
+pub struct CalendarEvents {
     /// The primary calendar's ID, which is the account's email address.
     pub account: Option<String>,
     pub items: Vec<AgendaItem>,
@@ -89,12 +89,12 @@ pub struct Upcoming {
 }
 
 /// Events from every calendar in the user's list between `from` and `to`.
-pub async fn upcoming(
+pub async fn events_between(
     http: &reqwest::Client,
     token: &str,
     from: DateTime<Local>,
     to: DateTime<Local>,
-) -> Result<Upcoming> {
+) -> Result<CalendarEvents> {
     let calendars = list_calendars(http, token).await?;
     let account = calendars.iter().find(|c| c.primary).map(|c| c.id.clone());
 
@@ -110,7 +110,7 @@ pub async fn upcoming(
             Err(e) => warnings.push(format!("{}: {e}", calendar.name())),
         }
     }
-    Ok(Upcoming { account, items, warnings })
+    Ok(CalendarEvents { account, items, warnings })
 }
 
 async fn list_calendars(http: &reqwest::Client, token: &str) -> Result<Vec<CalendarListEntry>> {
@@ -211,5 +211,8 @@ fn to_agenda_item(calendar: &CalendarListEntry, event: Event) -> Option<AgendaIt
         color: calendar.background_color.clone(),
         list_name: calendar.name(),
         url: event.html_link,
+        completed: false,
+        overdue: false,
+        priority: None,
     })
 }
