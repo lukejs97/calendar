@@ -49,19 +49,22 @@ console this section is called **Google Auth Platform**.
 4. **Contact information**: your email.
 5. **Finish**: tick the box to agree to the Google API Services User Data Policy, then **Continue** and **Create**.
 
-## 4. Add the Calendar scope
+## 4. Add the Calendar scopes
 
-A *scope* is one specific permission the app asks for. Phase 1 only reads, so
-it asks for read-only Calendar access.
+A *scope* is one specific permission the app asks for. The app asks for two:
+reading your calendars, and adding events to them.
 
 1. In Google Auth Platform, open **Data Access**.
 2. Click **Add or remove scopes**.
 3. In the filter box, type `calendar.readonly` and tick
    `https://www.googleapis.com/auth/calendar.readonly` ("See and download any calendar you can access").
-4. Click **Update**, then **Save** at the bottom of the page.
+4. Clear the filter, type `calendar.events` and tick
+   `https://www.googleapis.com/auth/calendar.events` ("View and edit events on all your calendars").
+5. Click **Update**, then **Save** at the bottom of the page.
 
-When Phase 3 (creating events) arrives, you'll come back here and also add
-`https://www.googleapis.com/auth/calendar.events`.
+Accounts added before the app could create events only gave permission to
+read. To add events to one, add it again (**Accounts → Add account**, pick the
+same account) and allow both on Google's page.
 
 ## 5. Create the "Desktop app" OAuth client
 

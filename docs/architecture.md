@@ -12,6 +12,8 @@
 │ time.ts    date helpers shared by all views         │
 │ api.ts     typed invoke() wrappers                  │
 │ settings.ts Google accounts and Todoist dialogs     │
+│ quick-add.ts "New event" dialog; quick-parse.ts     │
+│            reads the sentence (chrono-node)         │
 │ dev-mock.ts sample data for `npm run dev` in a      │
 │            browser (dev only)                       │
 └───────────────────────┬─────────────────────────────┘
@@ -74,15 +76,28 @@ Design rules:
 
 ## Phase 3: natural-language creation
 
-- Parsing runs locally and for free: e.g. [`chrono-node`](https://github.com/wanasit/chrono)
-  in TypeScript turns "lunch with Sam tomorrow 1pm" into a title and a date.
-  Show a live preview before saving, like Fantastical.
-- A leading keyword or prefix ("task:", or a toggle) sends the item to Todoist.
-  Otherwise it becomes a Google event.
-- Add the `calendar.events` scope in `google/auth.rs` and on the consent
-  screen. Existing users sign in again once to grant it.
-- New Rust commands: `create_event` (POST `calendars/{id}/events`) and
-  `create_task` (Todoist).
+Done for Google events:
+
+- **+** in the top bar (or `N`) opens `quick-add.ts`. `quick-parse.ts` reads
+  the sentence locally with [`chrono-node`](https://github.com/wanasit/chrono)
+  (English only): the date and time, a range ("9-10:30am", "Nov 12-14"), a
+  length ("for 30 min", default 1 hour), and a place at the end ("at Cafe
+  Roma", "in Berlin", "@ the park"; after "at"/"in" only a capitalised word or
+  number counts). A bare hour from 1 to 7 means pm. No date means all day today.
+  A live preview shows what will be saved.
+- The calendar picker lists calendars you own or can edit, by account
+  (`event_calendars`), and remembers the last one used.
+- `create_event` POSTs to `calendars/{id}/events`. The `calendar.events`
+  scope is in `google/auth.rs`; the token's granted scopes say whether an
+  account allowed it (`can_edit_events`). Accounts added before need adding
+  again once.
+
+Still to do:
+
+- A leading keyword or prefix ("task:", or a toggle) sends the item to
+  Todoist instead (`create_task`; Todoist's own Quick Add API understands
+  dates too).
+- Repeating events ("every Monday"), guests, and editing or deleting events.
 
 ## Later: branding and design
 

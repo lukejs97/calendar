@@ -489,6 +489,34 @@ main.loading > * {
   color: var(--error);
 }
 
+.quick-preview {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.quick-preview strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.dialog .quick-preview p {
+  margin: 0;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field-label + .text-input {
+  margin-bottom: 12px;
+}
+
 .account-list {
   margin: 0;
   padding: 0;

@@ -1,10 +1,11 @@
-//! Read access to Google Calendar API v3: the user's calendar list, and the
-//! events on each calendar within a time range.
+//! Google Calendar API v3: the user's calendar list, the events on each
+//! calendar within a time range, and adding events.
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDate};
 use futures::future::join_all;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use url::Url;
 
 use crate::agenda::{AgendaItem, ItemKind, Source};
@@ -28,6 +29,10 @@ struct CalendarListEntry {
     /// The name the user gave a calendar someone else shares with them.
     summary_override: Option<String>,
     background_color: Option<String>,
+    /// "owner", "writer", "reader" or "freeBusyReader".
+    access_role: Option<String>,
+    #[serde(default)]
+    primary: bool,
 }
 
 impl CalendarListEntry {
@@ -120,6 +125,89 @@ pub async fn primary_email(http: &reqwest::Client, token: &str) -> Result<String
     Ok(calendar.id)
 }
 
+/// A calendar you can add events to.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventCalendar {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub primary: bool,
+}
+
+/// The calendars you can add events to, your main ("primary") one first.
+pub async fn editable_calendars(http: &reqwest::Client, token: &str) -> Result<Vec<EventCalendar>> {
+    let mut calendars: Vec<EventCalendar> = list_calendars(http, token)
+        .await?
+        .into_iter()
+        .filter(|cal| matches!(cal.access_role.as_deref(), Some("owner" | "writer")))
+        .map(|cal| EventCalendar { name: cal.name(), id: cal.id, color: cal.background_color, primary: cal.primary })
+        .collect();
+    calendars.sort_by_key(|cal| !cal.primary);
+    Ok(calendars)
+}
+
+/// An event to add, as the quick-add box understood it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewEvent {
+    pub title: String,
+    /// "YYYY-MM-DD" when `all_day`, otherwise an RFC 3339 timestamp.
+    pub start: String,
+    /// Same format as `start`. For all-day events, the day after the last day.
+    pub end: String,
+    pub all_day: bool,
+    pub location: Option<String>,
+    /// IANA time zone, e.g. "Europe/London". Google needs it for timed events
+    /// that repeat; for others it only labels the event.
+    pub time_zone: Option<String>,
+}
+
+/// Adds `event` to the calendar `calendar_id`.
+pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str, event: &NewEvent) -> Result<()> {
+    let title = event.title.trim();
+    if title.is_empty() {
+        return Err(AppError::InvalidInput("the event needs a title".into()));
+    }
+    let (start, end) = if event.all_day {
+        let start = parse_day(&event.start)?;
+        let end = parse_day(&event.end)?;
+        if end <= start {
+            return Err(AppError::InvalidInput("the event must end after its first day".into()));
+        }
+        (json!({ "date": event.start }), json!({ "date": event.end }))
+    } else {
+        let start = parse_time(&event.start)?;
+        let end = parse_time(&event.end)?;
+        if end < start {
+            return Err(AppError::InvalidInput("the event must end after it starts".into()));
+        }
+        let at = |time: &str| match &event.time_zone {
+            Some(zone) => json!({ "dateTime": time, "timeZone": zone }),
+            None => json!({ "dateTime": time }),
+        };
+        (at(&event.start), at(&event.end))
+    };
+    let mut body = json!({ "summary": title, "start": start, "end": end });
+    if let Some(location) = event.location.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+        body["location"] = json!(location);
+    }
+
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events"]);
+    let _created: serde_json::Value = send(http.post(url).bearer_auth(token).json(&body)).await?;
+    Ok(())
+}
+
+fn parse_day(s: &str) -> Result<NaiveDate> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|_| AppError::InvalidInput(format!("not a YYYY-MM-DD date: {s:?}")))
+}
+
+fn parse_time(s: &str) -> Result<DateTime<chrono::FixedOffset>> {
+    DateTime::parse_from_rfc3339(s).map_err(|_| AppError::InvalidInput(format!("not an RFC 3339 time: {s:?}")))
+}
+
 async fn list_calendars(http: &reqwest::Client, token: &str) -> Result<Vec<CalendarListEntry>> {
     let mut url = Url::parse(API).expect("valid URL");
     url.path_segments_mut().expect("base URL").extend(["users", "me", "calendarList"]);
@@ -170,7 +258,12 @@ async fn get_all_pages<T: DeserializeOwned>(
 }
 
 async fn get_json<T: DeserializeOwned>(http: &reqwest::Client, token: &str, url: Url) -> Result<T> {
-    let response = http.get(url).bearer_auth(token).send().await?;
+    send(http.get(url).bearer_auth(token)).await
+}
+
+/// Sends a request and reads the JSON reply, or Google's error message.
+async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T> {
+    let response = request.send().await?;
     let status = response.status();
     if status.is_success() {
         return Ok(response.json().await?);

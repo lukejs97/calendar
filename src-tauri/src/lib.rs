@@ -7,11 +7,14 @@ mod todoist;
 use std::time::Duration;
 
 use chrono::NaiveDate;
+use futures::future::join_all;
+use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use agenda::Agenda;
 use error::{AppError, Result};
 use google::auth::GoogleAuth;
+use google::calendar::{EventCalendar, NewEvent};
 
 struct AppState {
     http: reqwest::Client,
@@ -47,6 +50,53 @@ async fn remove_google_account(state: State<'_, AppState>, email: String) -> Res
 #[tauri::command]
 async fn get_agenda(state: State<'_, AppState>, from: String, to: String) -> Result<Agenda> {
     agenda::load(&state.http, &state.google_auth, parse_date(&from)?, parse_date(&to)?).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountCalendars {
+    email: String,
+    /// False for accounts added before the app could add events. Adding the
+    /// account again (Accounts → Add account) asks Google for permission.
+    can_edit: bool,
+    calendars: Vec<EventCalendar>,
+    /// Why the calendars couldn't be listed, if they couldn't.
+    error: Option<String>,
+}
+
+/// The calendars you can add events to, for each Google account.
+#[tauri::command]
+async fn event_calendars(state: State<'_, AppState>) -> Result<Vec<AccountCalendars>> {
+    let (auth, http) = (&state.google_auth, &state.http);
+    let accounts = auth.accounts().await?;
+    let lists = join_all(accounts.iter().map(|email| async move {
+        if !auth.can_edit_events(email).await? {
+            return Ok((false, Vec::new()));
+        }
+        let token = auth.access_token(email).await?;
+        Ok((true, google::calendar::editable_calendars(http, &token).await?))
+    }))
+    .await;
+    Ok(accounts
+        .into_iter()
+        .zip(lists)
+        .map(|(email, list): (String, Result<_>)| match list {
+            Ok((can_edit, calendars)) => AccountCalendars { email, can_edit, calendars, error: None },
+            Err(e) => AccountCalendars { email, can_edit: false, calendars: Vec::new(), error: Some(e.to_string()) },
+        })
+        .collect())
+}
+
+/// Adds an event to `calendar_id`, one of `email`'s calendars.
+#[tauri::command]
+async fn create_event(
+    state: State<'_, AppState>,
+    email: String,
+    calendar_id: String,
+    event: NewEvent,
+) -> Result<()> {
+    let token = state.google_auth.access_token(&email).await?;
+    google::calendar::create_event(&state.http, &token, &calendar_id, &event).await
 }
 
 fn parse_date(s: &str) -> Result<NaiveDate> {
@@ -117,6 +167,8 @@ pub fn run() {
             google_accounts,
             remove_google_account,
             get_agenda,
+            event_calendars,
+            create_event,
             todoist_status,
             todoist_connect,
             todoist_disconnect,

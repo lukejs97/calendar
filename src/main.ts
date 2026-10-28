@@ -10,6 +10,7 @@ import {
   type AgendaItem,
 } from "./api";
 import { el } from "./dom";
+import { openQuickAdd } from "./quick-add";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
 import { overlaps, startOfDay, toDateString } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
@@ -36,6 +37,8 @@ const toggledTasks = new Map<string, AgendaItem>();
 /** What's on screen, so auto-refresh and resizing can redraw it in place. */
 let shown: { view: ViewName; range: string; agenda: Agenda } | undefined;
 let latestRequest = 0;
+/** A just-added event's start, to scroll into view on the next draw. */
+let reveal: Date | undefined;
 let refreshTimer: number | undefined;
 
 function savedView(): ViewName {
@@ -77,6 +80,8 @@ function itemsToShow(agenda: Agenda, from: Date, to: Date): AgendaItem[] {
 
 function render(agenda: Agenda): void {
   const { from, to, key } = currentRange();
+  const revealNow = reveal;
+  reveal = undefined;
   account.textContent = agenda.accounts.join(", ");
   banner.replaceChildren(...agenda.warnings.map((w) => el("p", "warning", `Couldn't load ${w}`)));
   VIEWS[state.view].render(app, {
@@ -86,6 +91,7 @@ function render(agenda: Agenda): void {
     anchor: state.anchor,
     now: new Date(),
     preserveScroll: shown?.view === state.view && shown.range === key,
+    reveal: revealNow,
     goTo,
     toggleTask,
   });
@@ -209,6 +215,15 @@ function showSignedOut(error?: string): void {
   app.replaceChildren(view);
 }
 
+/** Opens "New event"; once it's added, shows the day it's on. */
+function newEvent(): void {
+  openQuickAdd((start, allDay) => {
+    cache.clear();
+    if (!allDay) reveal = start;
+    goTo(state.view, start);
+  });
+}
+
 function setUpControls(): void {
   for (const name of VIEW_ORDER) {
     const spec = VIEWS[name];
@@ -223,6 +238,7 @@ function setUpControls(): void {
   document.querySelector("#prev")!.addEventListener("click", () => step(-1));
   document.querySelector("#next")!.addEventListener("click", () => step(1));
   refreshButton.addEventListener("click", load);
+  document.querySelector("#new-event")!.addEventListener("click", newEvent);
   document.querySelector("#todoist")!.addEventListener("click", () =>
     openTodoistSettings(() => {
       cache.clear();
@@ -245,6 +261,7 @@ function setUpControls(): void {
     const view = VIEW_ORDER.find((name) => VIEWS[name].key === key);
     if (view) goTo(view, state.anchor);
     else if (key === "t") goTo(state.view, new Date());
+    else if (key === "n") newEvent();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;

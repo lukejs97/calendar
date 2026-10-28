@@ -33,10 +33,12 @@ const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 
-/// Read-only for Phase 1. Creating events (Phase 3) needs
-/// "https://www.googleapis.com/auth/calendar.events" added here; the user then
-/// signs in once more to grant it.
-const SCOPES: &[&str] = &["https://www.googleapis.com/auth/calendar.readonly"];
+/// Lets the app add events. Accounts added before the app asked for it don't
+/// have it until they're added again.
+const EVENTS_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events";
+/// Reading the calendar list needs `calendar.readonly`; `calendar.events`
+/// alone only covers events.
+const SCOPES: &[&str] = &["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE];
 
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Refresh a little before Google's stated expiry so a request never races it.
@@ -106,6 +108,9 @@ struct TokenResponse {
     access_token: String,
     expires_in: u64,
     refresh_token: Option<String>,
+    /// The permissions granted, separated by spaces.
+    #[serde(default)]
+    scope: String,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +131,7 @@ impl From<TokenError> for AppError {
 struct AccessToken {
     value: String,
     expires_at: Instant,
+    can_edit_events: bool,
 }
 
 impl AccessToken {
@@ -133,6 +139,7 @@ impl AccessToken {
         AccessToken {
             value: tokens.access_token.clone(),
             expires_at: Instant::now() + Duration::from_secs(tokens.expires_in),
+            can_edit_events: tokens.scope.split(' ').any(|scope| scope == EVENTS_SCOPE),
         }
     }
 }
@@ -238,6 +245,13 @@ impl GoogleAuth {
                 Err(AppError::NotSignedIn)
             }
         }
+    }
+
+    /// Whether `email`'s account has allowed the app to add events.
+    pub async fn can_edit_events(&self, email: &str) -> Result<bool> {
+        self.access_token(email).await?;
+        let cached = self.access_tokens.lock().await;
+        Ok(cached.get(email).is_some_and(|token| token.can_edit_events))
     }
 
     /// Trades a refresh token for a new access token. `None` means Google no

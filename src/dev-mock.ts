@@ -2,8 +2,8 @@
 // open http://localhost:1420), where the Rust side isn't available. Only
 // loaded in development, never in the built app.
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Agenda, AgendaItem } from "./api";
-import { addDays, isSameDay, parseDate, startOfDay, toDateString } from "./time";
+import type { Agenda, AgendaItem, NewEvent } from "./api";
+import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
 const WORK = { name: "Work", color: "#33b679" };
@@ -110,6 +110,11 @@ export function install(): void {
   let accounts = ["preview@example.com"];
   let todoistConnected = true;
   const completedTasks = new Set<string>();
+  const created: AgendaItem[] = [];
+  const calendars = [
+    { id: "personal", ...PERSONAL, primary: true },
+    { id: "work", ...WORK, primary: false },
+  ];
 
   mockIPC((cmd, args) => {
     switch (cmd) {
@@ -130,11 +135,41 @@ export function install(): void {
       case "get_agenda": {
         const { from, to } = args as { from: string; to: string };
         // Like the real API: done tasks aren't returned, nor any tasks without Todoist.
-        const items = sampleItems(parseDate(from), parseDate(to)).filter((item) =>
-          item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true,
-        );
+        const range = { from: parseDate(from), to: parseDate(to) };
+        const items = [
+          ...sampleItems(range.from, range.to),
+          ...created.filter((item) => overlaps(item, range.from, range.to)),
+        ].filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true));
         const agenda: Agenda = { accounts, items, warnings: [] };
         return agenda;
+      }
+      case "event_calendars":
+        return accounts.map((email, i) => ({
+          email,
+          canEdit: i === 0,
+          calendars: i === 0 ? calendars.map(({ id, name, color, primary }) => ({ id, name, color, primary })) : [],
+          error: null,
+        }));
+      case "create_event": {
+        const { calendarId, event } = args as { calendarId: string; event: NewEvent };
+        const calendar = calendars.find((c) => c.id === calendarId)!;
+        created.push({
+          id: `mock:created:${created.length}`,
+          source: "google",
+          kind: "event",
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          allDay: event.allDay,
+          location: event.location,
+          color: calendar.color,
+          listName: calendar.name,
+          url: "https://calendar.google.com/",
+          completed: false,
+          overdue: false,
+          priority: null,
+        });
+        return null;
       }
       case "todoist_status":
         return todoistConnected;

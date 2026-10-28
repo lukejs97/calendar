@@ -34,6 +34,36 @@ export interface Agenda {
   warnings: string[];
 }
 
+/** A calendar you can add events to. Mirrors `EventCalendar` in google/calendar.rs. */
+export interface EventCalendar {
+  id: string;
+  name: string;
+  color: string | null;
+  primary: boolean;
+}
+
+export interface AccountCalendars {
+  email: string;
+  /** False until an account added before the app could add events is added again. */
+  canEdit: boolean;
+  calendars: EventCalendar[];
+  /** Why the calendars couldn't be listed, if they couldn't. */
+  error: string | null;
+}
+
+/** Mirrors `NewEvent` in google/calendar.rs. */
+export interface NewEvent {
+  title: string;
+  /** "YYYY-MM-DD" when allDay, otherwise an ISO timestamp with offset. */
+  start: string;
+  /** For all-day events, the day after the last day. */
+  end: string;
+  allDay: boolean;
+  location: string | null;
+  /** IANA time zone, e.g. "Europe/London". */
+  timeZone: string | null;
+}
+
 /** Shape of every error a command rejects with (see src-tauri/src/error.rs). */
 export interface AppError {
   kind: "notSignedIn" | "config" | "auth" | "input" | "api" | "network" | "keychain" | "io";
@@ -45,6 +75,9 @@ export const authStatus = () => invoke<boolean>("auth_status");
 export const signIn = () => invoke<string>("sign_in");
 export const googleAccounts = () => invoke<string[]>("google_accounts");
 export const removeGoogleAccount = (email: string) => invoke<void>("remove_google_account", { email });
+export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
+export const createEvent = (email: string, calendarId: string, event: NewEvent) =>
+  invoke<void>("create_event", { email, calendarId, event });
 /** Items from local date `from` up to (not including) `to`, both "YYYY-MM-DD". */
 export const getAgenda = (from: string, to: string) => invoke<Agenda>("get_agenda", { from, to });
 

@@ -206,7 +206,9 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
 
   const previousScroll = ctx.preserveScroll ? root.querySelector(".tl-body")?.scrollTop : undefined;
   root.replaceChildren(timeline);
-  if (previousScroll !== undefined) {
+  if (ctx.reveal) {
+    body.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * HOUR_HEIGHT;
+  } else if (previousScroll !== undefined) {
     body.scrollTop = previousScroll;
   } else {
     // Start at 7 AM, or a couple of hours before now when today is shown.

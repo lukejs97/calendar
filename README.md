@@ -7,6 +7,12 @@ It runs on Windows and macOS.
 **Phase 1** (this): sign in with Google, and see all your calendars in Day,
 Week, Month, Year and Agenda views.
 
+**Add events**: click **+** in the top bar (or press `N`) and type something
+like "Lunch with Sam tomorrow 1pm at Cafe Roma" or "Conference Nov 12-14 in
+Berlin". A preview shows what the app understood; pick the calendar and click
+**Add**. Accounts added before this feature existed need adding again once
+(Accounts → Add account) to give permission.
+
 **More than one Google account**: click **Accounts** in the top bar, then
 **Add account**, and pick the other account in your browser. Events from all
 accounts appear together. Remove an account from the same dialog. While the
@@ -18,8 +24,8 @@ token from Todoist → Settings → Integrations → Developer. Tasks with a due
 date then appear with a checkbox in every view, overdue ones on today. Ticking
 one completes it in Todoist. The token is kept in your OS keychain.
 
-Keyboard: `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `←` `→` go
-back and forward. Click an event to open it in Google Calendar. Click a date
+Keyboard: `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `N` adds an
+event, `←` `→` go back and forward. Click an event to open it in Google Calendar. Click a date
 (in the week header, month grid or year view) to open that day.
 
 To work on the UI without the Rust side, run `npm run dev` and open
