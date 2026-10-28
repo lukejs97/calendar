@@ -1,7 +1,7 @@
 // The details popup for an event or task: when and where, a button to join
 // the video call, guests, and notes. Opens on click instead of the browser.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AgendaItem, Attendee } from "./api";
+import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
 import { el, setItemColor } from "./dom";
 import { describeTimes, itemEnd, itemStart } from "./time";
 
@@ -12,8 +12,17 @@ const RESPONSES: Record<string, string> = {
   needsAction: "Hasn't replied",
 };
 
-/** Opens the popup. `toggleTask` completes a task, or un-completes it. */
-export function openDetails(item: AgendaItem, toggleTask: (item: AgendaItem) => void): void {
+export interface DetailActions {
+  /** Completes a task, or un-completes it. */
+  toggleTask(item: AgendaItem): void;
+  /** Opens the Edit window. */
+  edit(item: AgendaItem): void;
+  /** Runs once the item has been deleted. */
+  deleted(item: AgendaItem): void;
+}
+
+/** Opens the popup. */
+export function openDetails(item: AgendaItem, actions: DetailActions): void {
   const dialog = el("dialog", "dialog details");
   dialog.setAttribute("aria-labelledby", "details-title");
   document.body.append(dialog);
@@ -67,11 +76,33 @@ export function openDetails(item: AgendaItem, toggleTask: (item: AgendaItem) => 
   }
 
   const buttons = el("div", "dialog-buttons");
+  const error = el("p", "error");
+  // Google events you may change, and any task.
+  if (item.editable || item.kind === "task") {
+    const remove = el("button", "text-button danger", "Delete");
+    remove.addEventListener("click", async () => {
+      error.textContent = "";
+      try {
+        if (await deleteItem(item)) {
+          dialog.close();
+          actions.deleted(item);
+        }
+      } catch (e) {
+        error.textContent = `Couldn't delete it: ${errorMessage(e)}`;
+      }
+    });
+    const edit = el("button", "text-button", "Edit");
+    edit.addEventListener("click", () => {
+      dialog.close();
+      actions.edit(item);
+    });
+    buttons.append(remove, edit);
+  }
   if (item.kind === "task") {
     const toggle = el("button", "text-button", item.completed ? "Mark not done" : "Complete");
     toggle.addEventListener("click", () => {
       dialog.close();
-      toggleTask(item);
+      actions.toggleTask(item);
     });
     buttons.append(toggle);
   }
@@ -85,9 +116,66 @@ export function openDetails(item: AgendaItem, toggleTask: (item: AgendaItem) => 
   close.addEventListener("click", () => dialog.close());
   buttons.append(close);
 
-  dialog.append(title, rows, buttons);
+  dialog.append(title, rows, error, buttons);
   dialog.showModal();
   close.focus();
+}
+
+/**
+ * Asks before deleting, then deletes. For one occurrence of a repeating
+ * event, asks whether to delete just it or the whole series. Resolves to
+ * false if you cancelled.
+ */
+async function deleteItem(item: AgendaItem): Promise<boolean> {
+  if (item.kind === "task") {
+    if ((await ask(`Delete "${item.title}"?`, "It's deleted in Todoist too.", [["delete", "Delete task", true]])) !== "delete") {
+      return false;
+    }
+    await deleteTask(item.sourceId!);
+    return true;
+  }
+  const guests = item.attendees.some((a) => !a.isSelf);
+  const note = guests ? "Guests are emailed that it's cancelled." : "It's deleted in Google Calendar too.";
+  const choice = item.recurring
+    ? await ask(`Delete "${item.title}"?`, `It repeats. ${note}`, [
+        ["one", "This event only", false],
+        ["all", "All events", true],
+      ])
+    : await ask(`Delete "${item.title}"?`, note, [["one", "Delete event", true]]);
+  if (!choice) return false;
+  await deleteEvent(eventRef(item, choice === "all"), guests);
+  return true;
+}
+
+/**
+ * A small question with a button per answer (plus Cancel). Resolves to the
+ * chosen answer's value, or null for Cancel or Escape.
+ */
+function ask(question: string, detail: string, answers: [string, string, boolean][]): Promise<string | null> {
+  return new Promise((resolve) => {
+    const dialog = el("dialog", "dialog");
+    document.body.append(dialog);
+    let answer: string | null = null;
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(answer);
+    });
+    const cancel = el("button", "text-button", "Cancel");
+    cancel.addEventListener("click", () => dialog.close());
+    const buttons = el("div", "dialog-buttons");
+    buttons.append(cancel);
+    for (const [value, label, danger] of answers) {
+      const button = el("button", danger ? "primary-button danger" : "text-button", label);
+      button.addEventListener("click", () => {
+        answer = value;
+        dialog.close();
+      });
+      buttons.append(button);
+    }
+    dialog.append(el("h2", undefined, question), el("p", undefined, detail), buttons);
+    dialog.showModal();
+    cancel.focus();
+  });
 }
 
 function row(label: string, content: string | Node): HTMLElement {

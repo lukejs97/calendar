@@ -4,9 +4,11 @@ import {
   errorMessage,
   getAgenda,
   getSavedAgenda,
+  eventRef,
   isNotSignedIn,
-  moveEvent as saveEventTimes,
+  setEventTimes,
   setTaskCompleted,
+  setTaskDue,
   signIn,
   type Agenda,
   type AgendaItem,
@@ -14,10 +16,10 @@ import {
 import { refreshAlerts, startAlerts, stopAlerts } from "./alerts";
 import { openDetails } from "./details";
 import { el } from "./dom";
-import { openQuickAdd } from "./quick-add";
+import { openEdit, openNew } from "./event-form";
 import { openSearch } from "./search";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
-import { itemStart, localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
+import { itemEnd, itemStart, localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -100,8 +102,8 @@ function render(agenda: Agenda): void {
     reveal: revealNow,
     goTo,
     toggleTask,
-    openItem: (item) => openDetails(item, toggleTask),
-    moveEvent,
+    openItem: showDetails,
+    moveItem,
   });
   shown = { view: state.view, range: key, agenda };
 }
@@ -140,17 +142,24 @@ function replaceShown(item: AgendaItem): void {
   rerender();
 }
 
-/** Moves a Google event right away on screen, then tells Google. */
-async function moveEvent(item: AgendaItem, start: Date, end: Date): Promise<void> {
-  const unchanged =
-    start.getTime() === new Date(item.start).getTime() && end.getTime() === new Date(item.end ?? item.start).getTime();
-  if (unchanged) {
-    rerender();
+/** Whether an event has guests besides you, who'd be emailed about changes. */
+const hasGuests = (item: AgendaItem) => item.attendees.some((a) => !a.isSelf);
+
+/** Moves an event or task right away on screen (after dragging it), then saves it. */
+async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void> {
+  if (start.getTime() === itemStart(item).getTime() && end.getTime() === itemEnd(item).getTime()) {
+    rerender(); // dropped where it was
     return;
   }
-  replaceShown({ ...item, start: toLocalIso(start), end: toLocalIso(end) });
+  const format = (d: Date) => (item.allDay ? toDateString(d) : toLocalIso(d));
+  replaceShown({ ...item, start: format(start), end: format(end), overdue: false });
   try {
-    await saveEventTimes(item, toLocalIso(start), toLocalIso(end), localTimeZone());
+    if (item.source === "todoist") {
+      await setTaskDue(item.sourceId!, { kind: "at", at: format(start) });
+    } else {
+      const times = { start: format(start), end: format(end), allDay: item.allDay, timeZone: localTimeZone() };
+      await setEventTimes(eventRef(item), times, hasGuests(item));
+    }
     refreshAlerts();
     // Other cached ranges may show it too; fetch them fresh when visited.
     for (const key of cache.keys()) if (key !== shown?.range) cache.delete(key);
@@ -280,9 +289,24 @@ function showSignedOut(error?: string): void {
   app.replaceChildren(view);
 }
 
+/** Reloads everything after an event or task was edited or deleted. */
+function changed(): void {
+  cache.clear();
+  refreshAlerts();
+  void load();
+}
+
+function showDetails(item: AgendaItem): void {
+  openDetails(item, {
+    toggleTask,
+    edit: (it) => openEdit(it, changed),
+    deleted: changed,
+  });
+}
+
 /** Opens "New event" (or task); once it's added, shows the day it's on. */
 function newEvent(): void {
-  openQuickAdd((start, allDay) => {
+  openNew(({ start, allDay }) => {
     cache.clear();
     refreshAlerts();
     if (!start) return void load(); // a task without a date isn't on the calendar
@@ -295,7 +319,7 @@ function newEvent(): void {
 function searchEvents(): void {
   openSearch((item) => {
     goTo("day", itemStart(item));
-    openDetails(item, toggleTask);
+    showDetails(item);
   });
 }
 

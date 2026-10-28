@@ -2,7 +2,7 @@
 // open http://localhost:1420), where the Rust side isn't available. Only
 // loaded in development, never in the built app.
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Agenda, AgendaItem, NewEvent } from "./api";
+import type { Agenda, AgendaItem, EventDraft, EventTimes, TaskDraft, TaskDue } from "./api";
 import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
@@ -27,8 +27,9 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     overdue: false,
     priority: null,
     account: "preview@example.com",
-    calendarId: "personal",
-    eventId: null,
+    listId: "personal",
+    sourceId: null,
+    seriesId: null,
     editable: true,
     recurring: false,
     description: null,
@@ -46,8 +47,8 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       kind: "task",
       url: "https://app.todoist.com/",
       account: null,
-      calendarId: null,
-      editable: false,
+      listId: "inbox",
+      editable: true,
       reminders: [],
       id: `todoist:${title}:${toDateString(day)}`,
       title,
@@ -145,6 +146,15 @@ export function install(): void {
   let todoistConnected = true;
   const completedTasks = new Set<string>();
   const created: AgendaItem[] = [];
+  // Changes to sample items, which are made afresh for every request.
+  const edits = new Map<string, Partial<AgendaItem>>();
+  const deleted = new Set<string>();
+  const edit = (id: string, changes: Partial<AgendaItem>) => edits.set(id, { ...edits.get(id), ...changes });
+  const dueFields = (due: TaskDue): Partial<AgendaItem> => {
+    if (due.kind !== "at") return {};
+    const allDay = due.at.length === 10;
+    return { start: due.at, end: allDay ? toDateString(addDays(parseDate(due.at), 1)) : due.at, allDay, overdue: false };
+  };
   const calendars = [
     { id: "personal", ...PERSONAL, primary: true },
     { id: "work", ...WORK, primary: false },
@@ -170,10 +180,11 @@ export function install(): void {
         const { from, to } = args as { from: string; to: string };
         // Like the real API: done tasks aren't returned, nor any tasks without Todoist.
         const range = { from: parseDate(from), to: parseDate(to) };
-        const items = [
-          ...sampleItems(range.from, range.to),
-          ...created.filter((item) => overlaps(item, range.from, range.to)),
-        ].filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true));
+        const items = [...sampleItems(range.from, range.to), ...created]
+          .filter((item) => !deleted.has(item.id))
+          .map((item) => ({ ...item, ...edits.get(item.id), sourceId: item.id }))
+          .filter((item) => overlaps(item, range.from, range.to))
+          .filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true));
         const agenda: Agenda = { accounts, items, warnings: [], offlineSince: null };
         return agenda;
       }
@@ -198,16 +209,17 @@ export function install(): void {
           { id: "home", name: "Home", color: HOME.color, inbox: false },
         ];
       case "create_task": {
-        const { task } = args as { task: { content: string; due: string | null; priority: number | null } };
-        if (task.due) {
-          const allDay = task.due.length === 10;
+        const { task } = args as { task: TaskDraft };
+        if (task.due?.kind === "at") {
+          const due = task.due.at;
+          const allDay = due.length === 10;
           created.push({
             id: `mock:task:${created.length}`,
             source: "todoist",
             kind: "task",
             title: task.content,
-            start: task.due,
-            end: allDay ? toDateString(addDays(parseDate(task.due), 1)) : task.due,
+            start: due,
+            end: allDay ? toDateString(addDays(parseDate(due), 1)) : due,
             allDay,
             location: null,
             color: INBOX.color,
@@ -217,9 +229,10 @@ export function install(): void {
             overdue: false,
             priority: task.priority ?? 4,
             account: null,
-            calendarId: null,
-            eventId: null,
-            editable: false,
+            listId: "inbox",
+            sourceId: `mock:task:${created.length}`,
+            seriesId: null,
+            editable: true,
             recurring: false,
             description: null,
             attendees: [],
@@ -239,7 +252,7 @@ export function install(): void {
           error: null,
         }));
       case "create_event": {
-        const { calendarId, event } = args as { calendarId: string; event: NewEvent };
+        const { calendarId, event } = args as { calendarId: string; event: EventDraft };
         const calendar = calendars.find((c) => c.id === calendarId)!;
         const id = `mock:created:${created.length}`;
         created.push({
@@ -258,8 +271,9 @@ export function install(): void {
           overdue: false,
           priority: null,
           account: "preview@example.com",
-          calendarId,
-          eventId: id,
+          listId: calendarId,
+          sourceId: id,
+          seriesId: null,
           editable: true,
           recurring: false,
           description: null,
@@ -269,12 +283,35 @@ export function install(): void {
         });
         return null;
       }
-      case "move_event": {
-        const { start, end } = args as { start: string; end: string };
-        const event = created.find((item) => (args as { eventId: string }).eventId === item.id);
-        if (event) Object.assign(event, { start, end });
+      case "update_event": {
+        const { target, event } = args as { target: { eventId: string }; event: EventDraft };
+        const { title, start, end, allDay, location, description } = event;
+        edit(target.eventId, { title, start, end, allDay, location, description });
         return null;
       }
+      case "set_event_times": {
+        const { target, times } = args as { target: { eventId: string }; times: EventTimes };
+        edit(target.eventId, { start: times.start, end: times.end, allDay: times.allDay });
+        return null;
+      }
+      case "delete_event":
+        deleted.add((args as { target: { eventId: string } }).target.eventId);
+        return null;
+      case "update_task": {
+        const { id, task } = args as { id: string; task: TaskDraft };
+        edit(id, { title: task.content, ...(task.description !== null ? { description: task.description } : {}) });
+        if (task.due) edit(id, dueFields(task.due));
+        if (task.priority) edit(id, { priority: task.priority });
+        return null;
+      }
+      case "set_task_due": {
+        const { id, due } = args as { id: string; due: TaskDue };
+        edit(id, dueFields(due));
+        return null;
+      }
+      case "delete_task":
+        deleted.add((args as { id: string }).id);
+        return null;
       case "todoist_status":
         return todoistConnected;
       case "todoist_connect":

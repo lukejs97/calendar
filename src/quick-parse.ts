@@ -1,8 +1,21 @@
 // Turns a sentence like "Lunch with Sam tomorrow 1pm at Cafe Roma" into an
-// event: title, start and end, all-day or not, and location. Runs locally;
-// chrono-node finds the date and time.
+// event: title, start and end, all-day or not, location, and also a repeat
+// ("every Monday"), an alert ("remind me 30 min before") and guests (email
+// addresses). Runs locally; chrono-node finds the date and time.
 import * as chrono from "chrono-node/en";
 import { addDays, MS_PER_MINUTE, startOfDay } from "./time";
+
+export type Repeat = "daily" | "weekdays" | "weekly" | "biweekly" | "monthly" | "yearly";
+
+/** Google Calendar's repeat rules. A weekly repeat falls on the start's weekday. */
+export const REPEAT_RULES: Record<Repeat, string> = {
+  daily: "RRULE:FREQ=DAILY",
+  weekdays: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+  weekly: "RRULE:FREQ=WEEKLY",
+  biweekly: "RRULE:FREQ=WEEKLY;INTERVAL=2",
+  monthly: "RRULE:FREQ=MONTHLY",
+  yearly: "RRULE:FREQ=YEARLY",
+};
 
 export interface ParsedEvent {
   title: string;
@@ -13,12 +26,21 @@ export interface ParsedEvent {
   location: string | null;
   /** False when the text named no date or time (then it's all day today). */
   dated: boolean;
+  repeat: Repeat | null;
+  /** Minutes before the start; "none" for no alert; null if not mentioned. */
+  alert: number | "none" | null;
+  /** Email addresses to invite. */
+  guests: string[];
+  /** The words that gave the date and time, e.g. "tomorrow 1pm". */
+  dateText: string | null;
 }
 
 export interface ParsedTask {
   title: string;
-  /** Null when no date was given. */
+  /** Null when no date was given, or when it repeats. */
   due: { start: Date; allDay: boolean } | null;
+  /** A repeat in Todoist's own words, e.g. "every Monday at 7am"; Todoist reads it. */
+  repeat: string | null;
   /** 1 (most urgent) to 4, from "p1"–"p4" as in Todoist; null if not given. */
   priority: number | null;
 }
@@ -41,6 +63,40 @@ const LOCATION = /(?:^|\s)(?:@\s*(\S.*)|(?:at|in)\s+([A-Z0-9].*))$/;
 /** A word that introduces the date: "on Friday", "from Nov 12". */
 const BEFORE_DATE = /(?:^|\s)(?:on|at|from|by|until|till|starting)\s*$/i;
 
+/** "every Monday", "every other Friday": a weekly repeat on that day. */
+const EVERY_WEEKDAY = /\bevery\s+(other\s+)?((?:mon|tues|wednes|thurs|fri|satur|sun)day)s?\b/i;
+
+const REPEATS: [RegExp, Repeat][] = [
+  [/\b(?:every\s+weekday|on\s+weekdays|weekdays)\b/i, "weekdays"],
+  [/\b(?:every\s+day|each\s+day|daily)\b/i, "daily"],
+  [/\b(?:every\s+(?:other|2|two)\s+weeks?|biweekly|fortnightly)\b/i, "biweekly"],
+  [/\b(?:every\s+week|weekly)\b/i, "weekly"],
+  [/\b(?:every\s+month|monthly)\b/i, "monthly"],
+  [/\b(?:every\s+year|yearly|annually)\b/i, "yearly"],
+];
+
+const TODOIST_REPEATS: Record<Repeat, string> = {
+  daily: "every day",
+  weekdays: "every weekday",
+  weekly: "every week",
+  biweekly: "every other week",
+  monthly: "every month",
+  yearly: "every year",
+};
+
+/** "on the 1st", "the 15th": the next such day of the month. */
+const DAY_OF_MONTH = /\b(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b/i;
+
+/** "remind me 30 min before", "alert 1 hour before", "reminder 2 days early". */
+const ALERT =
+  /\b(?:remind\s+me|reminder|alert(?:\s+me)?|notify\s+me)\s+(\d+(?:\.\d+)?|an?|one)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\s*(?:before|early|earlier|ahead|prior)?\b/i;
+const ALERT_AT_START = /\b(?:remind\s+me|alert(?:\s+me)?|notify\s+me)\s+(?:at|when\s+it)\s+(?:the\s+)?starts?\b/i;
+const NO_ALERT = /\bno\s+(?:alerts?|reminders?|notifications?)\b/i;
+
+const EMAIL = "[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}";
+/** "with sam@x.com and jo@y.com", or just the addresses. */
+const GUESTS = new RegExp(`(?:\\bwith\\s+)?${EMAIL}(?:\\s*(?:,|and|&)\\s*${EMAIL})*`, "i");
+
 /** Words left dangling where the date was: "Dinner on" → "Dinner". */
 const DANGLING = /(?:\s+(?:on|at|from|by|until|till|to|for|this|next|in|-|–|,))+$/i;
 
@@ -50,22 +106,84 @@ const DANGLING = /(?:\s+(?:on|at|from|by|until|till|to|for|this|next|in|-|–|,)
  */
 export function parseTask(text: string, now: Date): ParsedTask | null {
   const priority = PRIORITY.exec(text);
-  const rest = priority ? cut(text, priority.index, priority[0].length) : text;
-  const parsed = parseEvent(rest, now, false);
+  let rest = priority ? cut(text, priority.index, priority[0].length) : text;
+
+  // A repeat goes to Todoist in its own words, with any day or time:
+  // "every month on the 1st", "every weekday at 9am".
+  let repeat: string | null = null;
+  const weekday = EVERY_WEEKDAY.exec(rest);
+  if (weekday) {
+    repeat = weekday[0];
+    rest = cut(rest, weekday.index, weekday[0].length);
+  } else {
+    for (const [pattern, kind] of REPEATS) {
+      const match = pattern.exec(rest);
+      if (match) {
+        repeat = TODOIST_REPEATS[kind];
+        rest = cut(rest, match.index, match[0].length);
+        break;
+      }
+    }
+  }
+
+  const parsed = parseEvent(rest, now, { forTask: true });
   if (!parsed) return null;
+  if (repeat && parsed.dateText) {
+    const when = parsed.dateText.replace(/^(?:at|on)\s+/i, "");
+    repeat = `${repeat} ${parsed.allDay ? "on" : "at"} ${when}`;
+  }
   return {
     title: parsed.title,
-    due: parsed.dated ? { start: parsed.start, allDay: parsed.allDay } : null,
+    due: !repeat && parsed.dated ? { start: parsed.start, allDay: parsed.allDay } : null,
+    repeat,
     priority: priority ? Number(priority[1]) : null,
   };
 }
 
 /**
  * Reads `text` relative to `now`. Returns null if there's no title.
- * `findPlace`: take " at …", " in …" or " @ …" at the end as the location.
+ * `forTask`: leave places, repeats, alerts and guests in the name, since a
+ * task has none of those here.
  */
-export function parseEvent(text: string, now: Date, findPlace = true): ParsedEvent | null {
+export function parseEvent(text: string, now: Date, { forTask = false } = {}): ParsedEvent | null {
   let rest = text.trim();
+
+  // These go first: their numbers ("every 2 weeks", "30 min before") would
+  // otherwise be read as dates or lengths.
+  let repeat: Repeat | null = null;
+  let alert: number | "none" | null = null;
+  const guests: string[] = [];
+  if (!forTask) {
+    const weekday = EVERY_WEEKDAY.exec(rest);
+    if (weekday) {
+      repeat = weekday[1] ? "biweekly" : "weekly";
+      // Keep the day's name, so the event starts on the next one.
+      rest = `${rest.slice(0, weekday.index)}${weekday[2]}${rest.slice(weekday.index + weekday[0].length)}`;
+    } else {
+      for (const [pattern, kind] of REPEATS) {
+        const match = pattern.exec(rest);
+        if (match) {
+          repeat = kind;
+          rest = cut(rest, match.index, match[0].length);
+          break;
+        }
+      }
+    }
+
+    const minutesBefore = ALERT.exec(rest);
+    const atStart = ALERT_AT_START.exec(rest);
+    const none = NO_ALERT.exec(rest);
+    const said = minutesBefore ?? atStart ?? none;
+    if (said) {
+      alert = minutesBefore ? alertMinutes(minutesBefore[1], minutesBefore[2]) : atStart ? 0 : "none";
+      rest = cut(rest, said.index, said[0].length);
+    }
+
+    for (let match = GUESTS.exec(rest); match; match = GUESTS.exec(rest)) {
+      guests.push(...(match[0].match(new RegExp(EMAIL, "gi")) ?? []).map((e) => e.toLowerCase()));
+      rest = cut(rest, match.index, match[0].length);
+    }
+  }
 
   let minutes = DEFAULT_MINUTES;
   const duration = DURATION.exec(rest);
@@ -79,7 +197,13 @@ export function parseEvent(text: string, now: Date, findPlace = true): ParsedEve
   let start: Date;
   let end: Date;
   let allDay: boolean;
-  if (!found) {
+  const dayOfMonth = found ? null : DAY_OF_MONTH.exec(rest);
+  if (dayOfMonth) {
+    start = nextDayOfMonth(now, Number(dayOfMonth[1]));
+    end = addDays(start, 1);
+    allDay = true;
+    rest = cut(rest, dayOfMonth.index, dayOfMonth[0].length);
+  } else if (!found) {
     start = startOfDay(now);
     end = addDays(start, 1);
     allDay = true;
@@ -105,7 +229,7 @@ export function parseEvent(text: string, now: Date, findPlace = true): ParsedEve
   }
 
   let location: string | null = null;
-  const place = findPlace ? LOCATION.exec(rest) : null;
+  const place = forTask ? null : LOCATION.exec(rest);
   if (place) {
     location = (place[1] ?? place[2]).trim();
     rest = rest.slice(0, place.index);
@@ -113,7 +237,18 @@ export function parseEvent(text: string, now: Date, findPlace = true): ParsedEve
 
   const title = tidy(rest);
   if (!title) return null;
-  return { title, start, end, allDay, location: location || null, dated: Boolean(found) };
+  return {
+    title,
+    start,
+    end,
+    allDay,
+    location: location || null,
+    dated: Boolean(found || dayOfMonth),
+    repeat,
+    alert,
+    guests,
+    dateText: found?.text ?? dayOfMonth?.[0] ?? null,
+  };
 }
 
 /**
@@ -124,6 +259,22 @@ function evening(morning: Date, now: Date, dayGiven: boolean): Date {
   const base = dayGiven ? morning : now;
   const pm = new Date(base.getFullYear(), base.getMonth(), base.getDate(), morning.getHours() + 12, morning.getMinutes());
   return dayGiven || pm > now ? pm : addDays(pm, 1);
+}
+
+/** The next date (from today) falling on day `day` of a month. */
+function nextDayOfMonth(now: Date, day: number): Date {
+  for (let monthsAhead = 0; monthsAhead < 13; monthsAhead++) {
+    const date = new Date(now.getFullYear(), now.getMonth() + monthsAhead, day);
+    // Skip months without that day (e.g. the 31st in November).
+    if (date.getDate() === day && date >= startOfDay(now)) return date;
+  }
+  return startOfDay(now);
+}
+
+function alertMinutes(amount: string, unit: string): number {
+  const count = /^(?:an?|one)$/i.test(amount) ? 1 : Number(amount);
+  const u = unit.toLowerCase();
+  return Math.round(count * (u.startsWith("d") ? 24 * 60 : u.startsWith("h") ? 60 : 1));
 }
 
 function durationMinutes(amount: string, unit: string): number {

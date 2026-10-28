@@ -35,13 +35,17 @@ export interface AgendaItem {
   overdue: boolean;
   /** Tasks only: 1 (most urgent) to 4, as numbered in the Todoist app. */
   priority: number | null;
-  /** Google events: the account and calendar they're on, and their ID there. */
+  /** Google events: the account they're in. */
   account: string | null;
-  calendarId: string | null;
-  eventId: string | null;
-  /** Google events the app may move or resize. */
+  /** The Google calendar, or Todoist project, it's in. */
+  listId: string | null;
+  /** Its ID in its own service: the Google event, or Todoist task. */
+  sourceId: string | null;
+  /** For one occurrence of a repeating Google event, the whole series' ID. */
+  seriesId: string | null;
+  /** Items the app may change (see AgendaItem.editable in agenda.rs). */
   editable: boolean;
-  /** One occurrence of a repeating event. */
+  /** One occurrence of a repeating event, or a repeating task. */
   recurring: boolean;
   /** Notes. Google's may contain simple HTML. */
   description: string | null;
@@ -78,17 +82,46 @@ export interface AccountCalendars {
   error: string | null;
 }
 
-/** Mirrors `NewEvent` in google/calendar.rs. */
-export interface NewEvent {
-  title: string;
+/** When an event happens. Mirrors `EventTimes` in google/calendar.rs. */
+export interface EventTimes {
   /** "YYYY-MM-DD" when allDay, otherwise an ISO timestamp with offset. */
   start: string;
   /** For all-day events, the day after the last day. */
   end: string;
   allDay: boolean;
-  location: string | null;
   /** IANA time zone, e.g. "Europe/London". */
   timeZone: string | null;
+}
+
+/** An event's alerts: its calendar's defaults, or its own (minutes before; empty for none). */
+export type Alerts = { kind: "default" } | { kind: "custom"; minutes: number[] };
+
+/** An event as the New or Edit form filled it in. Mirrors `EventDraft` in google/calendar.rs. */
+export interface EventDraft extends EventTimes {
+  title: string;
+  location: string | null;
+  description: string | null;
+  /** Repeat rules ("RRULE:…"); null leaves an existing event's repeat as it is. */
+  recurrence: string[] | null;
+  /** Null leaves an existing event's alerts as they are. */
+  alerts: Alerts | null;
+  /** Null leaves an existing event's guests as they are. `response` keeps someone's reply. */
+  guests: { email: string; response: string | null }[] | null;
+}
+
+/** Which Google event. For a repeating event, use `seriesId` to mean every occurrence. */
+export interface EventRef {
+  email: string;
+  calendarId: string;
+  eventId: string;
+}
+
+export function eventRef(item: AgendaItem, wholeSeries = false): EventRef {
+  return {
+    email: item.account!,
+    calendarId: item.listId!,
+    eventId: (wholeSeries && item.seriesId) || item.sourceId!,
+  };
 }
 
 /** Mirrors `SearchResults` in src-tauri/src/search.rs. */
@@ -110,13 +143,17 @@ export interface TodoistProject {
   inbox: boolean;
 }
 
-/** Mirrors `NewTask` in src-tauri/src/todoist.rs. */
-export interface NewTask {
+/** A task's due date: none; a day ("YYYY-MM-DD") or ISO time; or words Todoist reads ("every Monday"). */
+export type TaskDue = { kind: "none" } | { kind: "at"; at: string } | { kind: "words"; at: string };
+
+/** A task as the New or Edit form filled it in. Mirrors `TaskDraft` in todoist.rs. */
+export interface TaskDraft {
   content: string;
-  /** Null for the Inbox. */
+  description: string | null;
+  /** Null: the Inbox when adding; when editing, leaves it where it is. */
   projectId: string | null;
-  /** "YYYY-MM-DD", an ISO time with offset, or null for no due date. */
-  due: string | null;
+  /** Null leaves an existing task's due date as it is (and adds none). */
+  due: TaskDue | null;
   /** 1 (most urgent) to 4, as in the Todoist app. */
   priority: number | null;
 }
@@ -135,18 +172,16 @@ export const removeGoogleAccount = (email: string) => invoke<void>("remove_googl
 /** Events and tasks from a year back to a year ahead matching `query`. */
 export const search = (query: string) => invoke<SearchResults>("search", { query });
 export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
-export const createEvent = (email: string, calendarId: string, event: NewEvent) =>
+export const createEvent = (email: string, calendarId: string, event: EventDraft) =>
   invoke<void>("create_event", { email, calendarId, event });
-/** Moves or resizes a timed Google event; `start` and `end` are ISO timestamps with offset. */
-export const moveEvent = (item: AgendaItem, start: string, end: string, timeZone: string | null) =>
-  invoke<void>("move_event", {
-    email: item.account,
-    calendarId: item.calendarId,
-    eventId: item.eventId,
-    start,
-    end,
-    timeZone,
-  });
+/** `moveTo`: another calendar in the same account, or null. `notifyGuests` emails them. */
+export const updateEvent = (target: EventRef, event: EventDraft, moveTo: string | null, notifyGuests: boolean) =>
+  invoke<void>("update_event", { target, event, moveTo, notifyGuests });
+/** Moves or resizes an event (dragging it). */
+export const setEventTimes = (target: EventRef, times: EventTimes, notifyGuests: boolean) =>
+  invoke<void>("set_event_times", { target, times, notifyGuests });
+export const deleteEvent = (target: EventRef, notifyGuests: boolean) =>
+  invoke<void>("delete_event", { target, notifyGuests });
 /** Items from local date `from` up to (not including) `to`, both "YYYY-MM-DD". */
 export const getAgenda = (from: string, to: string) => invoke<Agenda>("get_agenda", { from, to });
 /** What was saved last time for that range, without the network; null if nothing. */
@@ -156,7 +191,11 @@ export const todoistStatus = () => invoke<boolean>("todoist_status");
 export const todoistConnect = (token: string) => invoke<void>("todoist_connect", { token });
 export const todoistDisconnect = () => invoke<void>("todoist_disconnect");
 export const todoistProjects = () => invoke<TodoistProject[]>("todoist_projects");
-export const createTask = (task: NewTask) => invoke<void>("create_task", { task });
+export const createTask = (task: TaskDraft) => invoke<void>("create_task", { task });
+/** `id` is the task's own Todoist ID (`AgendaItem.sourceId`). */
+export const updateTask = (id: string, task: TaskDraft) => invoke<void>("update_task", { id, task });
+export const setTaskDue = (id: string, due: TaskDue) => invoke<void>("set_task_due", { id, due });
+export const deleteTask = (id: string) => invoke<void>("delete_task", { id });
 export const setTaskCompleted = (id: string, completed: boolean) =>
   invoke<void>("set_task_completed", { id, completed });
 

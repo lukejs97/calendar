@@ -233,9 +233,9 @@ function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): voi
         const [newStart, newEnd] = times();
         if (newStart.getTime() === start.getTime() && newEnd.getTime() === end.getTime()) {
           block.classList.remove("dragging");
-          ctx.moveEvent(item, start, end); // puts it back where it was
+          ctx.moveItem(item, start, end); // puts it back where it was
         } else {
-          ctx.moveEvent(item, newStart, newEnd);
+          ctx.moveItem(item, newStart, newEnd);
         }
       });
     };

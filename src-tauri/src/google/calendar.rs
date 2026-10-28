@@ -5,7 +5,7 @@ use chrono::{DateTime, Local, NaiveDate};
 use futures::future::join_all;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use url::Url;
 
 use crate::agenda::{AgendaItem, Attendee as Guest, ItemKind, Source};
@@ -239,81 +239,207 @@ pub async fn editable_calendars(http: &reqwest::Client, token: &str) -> Result<V
     Ok(calendars)
 }
 
-/// An event to add, as the quick-add box understood it.
+/// When an event happens: whole days, or times.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewEvent {
-    pub title: String,
+pub struct EventTimes {
     /// "YYYY-MM-DD" when `all_day`, otherwise an RFC 3339 timestamp.
     pub start: String,
     /// Same format as `start`. For all-day events, the day after the last day.
     pub end: String,
     pub all_day: bool,
-    pub location: Option<String>,
     /// IANA time zone, e.g. "Europe/London". Google needs it for timed events
     /// that repeat; for others it only labels the event.
     pub time_zone: Option<String>,
 }
 
-/// Adds `event` to the calendar `calendar_id`.
-pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str, event: &NewEvent) -> Result<()> {
-    let title = event.title.trim();
-    if title.is_empty() {
-        return Err(AppError::InvalidInput("the event needs a title".into()));
-    }
-    let (start, end) = if event.all_day {
-        let start = parse_day(&event.start)?;
-        let end = parse_day(&event.end)?;
-        if end <= start {
-            return Err(AppError::InvalidInput("the event must end after its first day".into()));
+impl EventTimes {
+    /// The `start` and `end` Google expects, after checking them.
+    fn to_json(&self) -> Result<(Value, Value)> {
+        if self.all_day {
+            if parse_day(&self.end)? <= parse_day(&self.start)? {
+                return Err(AppError::InvalidInput("the event must end after its first day".into()));
+            }
+            return Ok((json!({ "date": self.start }), json!({ "date": self.end })));
         }
-        (json!({ "date": event.start }), json!({ "date": event.end }))
-    } else {
-        let start = parse_time(&event.start)?;
-        let end = parse_time(&event.end)?;
-        if end < start {
+        if parse_time(&self.end)? < parse_time(&self.start)? {
             return Err(AppError::InvalidInput("the event must end after it starts".into()));
         }
-        let at = |time: &str| match &event.time_zone {
+        let at = |time: &str| match &self.time_zone {
             Some(zone) => json!({ "dateTime": time, "timeZone": zone }),
             None => json!({ "dateTime": time }),
         };
-        (at(&event.start), at(&event.end))
-    };
-    let mut body = json!({ "summary": title, "start": start, "end": end });
-    if let Some(location) = event.location.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
-        body["location"] = json!(location);
+        Ok((at(&self.start), at(&self.end)))
+    }
+}
+
+/// Someone to invite.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestDraft {
+    pub email: String,
+    /// Kept for people already invited, so editing doesn't reset their reply.
+    pub response: Option<String>,
+}
+
+/// An event's alerts: its calendar's defaults, or its own.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "minutes")]
+pub enum Alerts {
+    Default,
+    /// Minutes before the start; empty for no alerts.
+    Custom(Vec<u32>),
+}
+
+/// An event as the New or Edit form filled it in.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventDraft {
+    pub title: String,
+    #[serde(flatten)]
+    pub times: EventTimes,
+    pub location: Option<String>,
+    pub description: Option<String>,
+    /// Repeat rules, e.g. "RRULE:FREQ=WEEKLY;BYDAY=MO". `None` leaves an
+    /// existing event's repeat as it is.
+    pub recurrence: Option<Vec<String>>,
+    /// `None` leaves an existing event's alerts as they are.
+    pub alerts: Option<Alerts>,
+    /// `None` leaves an existing event's guests as they are.
+    pub guests: Option<Vec<GuestDraft>>,
+}
+
+impl EventDraft {
+    fn to_json(&self) -> Result<Value> {
+        let title = self.title.trim();
+        if title.is_empty() {
+            return Err(AppError::InvalidInput("the event needs a title".into()));
+        }
+        let (start, end) = self.times.to_json()?;
+        let text = |s: &Option<String>| s.as_deref().map(str::trim).unwrap_or("").to_string();
+        // An empty string clears a field when editing.
+        let mut body = json!({
+            "summary": title,
+            "start": start,
+            "end": end,
+            "location": text(&self.location),
+            "description": text(&self.description),
+        });
+        match &self.alerts {
+            Some(Alerts::Default) => body["reminders"] = json!({ "useDefault": true }),
+            Some(Alerts::Custom(minutes)) => {
+                body["reminders"] = json!({
+                    "useDefault": false,
+                    "overrides": minutes.iter().map(|m| json!({ "method": "popup", "minutes": m })).collect::<Vec<_>>(),
+                })
+            }
+            None => {}
+        }
+        if let Some(rules) = &self.recurrence {
+            body["recurrence"] = json!(rules);
+        }
+        if let Some(guests) = &self.guests {
+            body["attendees"] = guests
+                .iter()
+                .map(|g| match &g.response {
+                    Some(response) => json!({ "email": g.email.trim(), "responseStatus": response }),
+                    None => json!({ "email": g.email.trim() }),
+                })
+                .collect();
+        }
+        Ok(body)
     }
 
+    fn has_guests(&self) -> bool {
+        self.guests.as_ref().is_some_and(|g| !g.is_empty())
+    }
+}
+
+/// `calendars/{calendar_id}/events[/{event_id}]`, with Google told whether to
+/// email guests about the change.
+fn events_url(calendar_id: &str, event_id: Option<&str>, notify_guests: bool) -> Url {
     let mut url = Url::parse(API).expect("valid URL");
-    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events"]);
-    let _created: serde_json::Value = send(http.post(url).bearer_auth(token).json(&body)).await?;
+    {
+        let mut path = url.path_segments_mut().expect("base URL");
+        path.extend(["calendars", calendar_id, "events"]);
+        if let Some(id) = event_id {
+            path.push(id);
+        }
+    }
+    url.query_pairs_mut().append_pair("sendUpdates", if notify_guests { "all" } else { "none" });
+    url
+}
+
+/// Adds an event to the calendar `calendar_id`, inviting its guests.
+pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str, draft: &EventDraft) -> Result<()> {
+    let url = events_url(calendar_id, None, draft.has_guests());
+    let _created: Value = send(http.post(url).bearer_auth(token).json(&draft.to_json()?)).await?;
     Ok(())
 }
 
-/// Moves a timed event, or changes its length. `start` and `end` are RFC 3339.
-/// For one occurrence of a repeating event, only that occurrence changes.
-pub async fn move_event(
+/// Saves an edited event. For one occurrence of a repeating event, only that
+/// occurrence changes. `notify_guests` emails them about the change.
+pub async fn update_event(
     http: &reqwest::Client,
     token: &str,
     calendar_id: &str,
     event_id: &str,
-    start: &str,
-    end: &str,
-    time_zone: Option<&str>,
+    draft: &EventDraft,
+    notify_guests: bool,
 ) -> Result<()> {
-    if parse_time(end)? <= parse_time(start)? {
-        return Err(AppError::InvalidInput("the event must end after it starts".into()));
-    }
-    let at = |time: &str| match time_zone {
-        Some(zone) => json!({ "dateTime": time, "timeZone": zone }),
-        None => json!({ "dateTime": time }),
-    };
-    let body = json!({ "start": at(start), "end": at(end) });
-    let mut url = Url::parse(API).expect("valid URL");
-    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", event_id]);
-    let _updated: serde_json::Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
+    let url = events_url(calendar_id, Some(event_id), notify_guests);
+    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&draft.to_json()?)).await?;
     Ok(())
+}
+
+/// Moves an event to another of the same account's calendars.
+pub async fn move_to_calendar(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    destination: &str,
+) -> Result<()> {
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", event_id, "move"]);
+    url.query_pairs_mut().append_pair("destination", destination);
+    let _moved: Value = send(http.post(url).bearer_auth(token)).await?;
+    Ok(())
+}
+
+/// Changes only when an event happens (dragging it). For one occurrence of a
+/// repeating event, only that occurrence changes.
+pub async fn set_event_times(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    times: &EventTimes,
+    notify_guests: bool,
+) -> Result<()> {
+    let (start, end) = times.to_json()?;
+    let url = events_url(calendar_id, Some(event_id), notify_guests);
+    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "start": start, "end": end }))).await?;
+    Ok(())
+}
+
+/// Deletes an event. Given a repeating event's own ID (`series_id`), deletes
+/// every occurrence; given one occurrence's ID, just that one.
+pub async fn delete_event(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    notify_guests: bool,
+) -> Result<()> {
+    let url = events_url(calendar_id, Some(event_id), notify_guests);
+    let response = http.delete(url).bearer_auth(token).send().await?;
+    let status = response.status();
+    // 410 Gone: it was already deleted, which is what we wanted.
+    if status.is_success() || status.as_u16() == 410 {
+        return Ok(());
+    }
+    Err(api_error(response).await)
 }
 
 fn parse_day(s: &str) -> Result<NaiveDate> {
@@ -385,15 +511,19 @@ async fn get_json<T: DeserializeOwned>(http: &reqwest::Client, token: &str, url:
 /// Sends a request and reads the JSON reply, or Google's error message.
 async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T> {
     let response = request.send().await?;
-    let status = response.status();
-    if status.is_success() {
+    if response.status().is_success() {
         return Ok(response.json().await?);
     }
+    Err(api_error(response).await)
+}
+
+async fn api_error(response: reqwest::Response) -> AppError {
+    let status = response.status();
     let message = match response.json::<ApiErrorBody>().await {
         Ok(body) => body.error.message,
         Err(_) => status.canonical_reason().unwrap_or("unknown error").to_string(),
     };
-    Err(AppError::Api { status: status.as_u16(), message })
+    AppError::Api { status: status.as_u16(), message }
 }
 
 fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, event: Event) -> Option<AgendaItem> {
@@ -453,10 +583,11 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
 
     Some(AgendaItem {
         account: Some(account.to_string()),
-        calendar_id: Some(calendar.id.clone()),
-        event_id: Some(event.id.clone()),
+        list_id: Some(calendar.id.clone()),
+        source_id: Some(event.id.clone()),
         editable: can_edit && calendar.can_write() && (organized_by_you || event.guests_can_modify),
         recurring: event.recurring_event_id.is_some(),
+        series_id: event.recurring_event_id,
         description: event.description.filter(|s| !s.trim().is_empty()),
         attendees,
         conference_url,
@@ -499,4 +630,70 @@ fn find_meeting_link(text: &str) -> Option<String> {
         .filter(|word| word.starts_with("https://"))
         .find(|word| HOSTS.iter().any(|host| word.contains(host)))
         .map(|word| word.trim_end_matches(['.', ',', ';']).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn draft(json: Value) -> EventDraft {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn a_new_repeating_event_with_an_alert_and_a_guest() {
+        let body = draft(json!({
+            "title": " Standup ",
+            "start": "2026-11-02T09:00:00+00:00",
+            "end": "2026-11-02T09:15:00+00:00",
+            "allDay": false,
+            "timeZone": "Europe/London",
+            "location": null,
+            "description": "Daily",
+            "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"],
+            "alerts": { "kind": "custom", "minutes": [10] },
+            "guests": [{ "email": "sam@example.com", "response": null }],
+        }))
+        .to_json()
+        .unwrap();
+        assert_eq!(body["summary"], "Standup");
+        assert_eq!(body["start"], json!({ "dateTime": "2026-11-02T09:00:00+00:00", "timeZone": "Europe/London" }));
+        assert_eq!(body["location"], "");
+        assert_eq!(body["recurrence"], json!(["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"]));
+        assert_eq!(body["reminders"], json!({ "useDefault": false, "overrides": [{ "method": "popup", "minutes": 10 }] }));
+        assert_eq!(body["attendees"], json!([{ "email": "sam@example.com" }]));
+    }
+
+    #[test]
+    fn editing_leaves_repeat_and_guests_alone_unless_given() {
+        let body = draft(json!({
+            "title": "Holiday",
+            "start": "2026-12-24",
+            "end": "2026-12-27",
+            "allDay": true,
+            "timeZone": null,
+            "location": "Home",
+            "description": null,
+            "recurrence": null,
+            "alerts": { "kind": "default" },
+            "guests": null,
+        }))
+        .to_json()
+        .unwrap();
+        assert_eq!(body["start"], json!({ "date": "2026-12-24" }));
+        assert_eq!(body["reminders"], json!({ "useDefault": true }));
+        assert!(body.get("recurrence").is_none());
+        assert!(body.get("attendees").is_none());
+    }
+
+    #[test]
+    fn an_event_must_end_after_it_starts() {
+        let times = EventTimes {
+            start: "2026-11-02".into(),
+            end: "2026-11-02".into(),
+            all_day: true,
+            time_zone: None,
+        };
+        assert!(times.to_json().is_err());
+    }
 }

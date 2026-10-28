@@ -21,6 +21,6 @@ export interface ViewContext {
   toggleTask(item: AgendaItem): void;
   /** Shows an item's details. */
   openItem(item: AgendaItem): void;
-  /** Moves or resizes a Google event (see `AgendaItem.editable`). */
-  moveEvent(item: AgendaItem, start: Date, end: Date): void;
+  /** Moves or resizes an event, or reschedules a task (see `AgendaItem.editable`). */
+  moveItem(item: AgendaItem, start: Date, end: Date): void;
 }

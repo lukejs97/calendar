@@ -67,19 +67,25 @@ pub struct AgendaItem {
     pub overdue: bool,
     /// Tasks only: 1 (most urgent) to 4, as numbered in the Todoist app.
     pub priority: Option<u8>,
-    /// Google events: the account and calendar they're on, and their ID there.
+    /// Google events: the account they're in.
     #[serde(default)]
     pub account: Option<String>,
+    /// The Google calendar, or Todoist project, it's in.
+    #[serde(default, alias = "calendarId")]
+    pub list_id: Option<String>,
+    /// Its ID in its own service: the Google event, or Todoist task.
+    #[serde(default, alias = "eventId")]
+    pub source_id: Option<String>,
+    /// For one occurrence of a repeating Google event, the whole series' ID.
     #[serde(default)]
-    pub calendar_id: Option<String>,
-    #[serde(default)]
-    pub event_id: Option<String>,
-    /// Google events the app may move: on a calendar you can edit, organized
-    /// by you (or open to changes by guests), in an account that allowed the
-    /// app to edit events.
+    pub series_id: Option<String>,
+    /// Items the app may change. Google events: on a calendar you can edit,
+    /// organized by you (or open to changes by guests), in an account that
+    /// allowed the app to edit events. Todoist tasks: ones that don't repeat
+    /// (changing a repeating task's date here would end its repeat).
     #[serde(default)]
     pub editable: bool,
-    /// One occurrence of a repeating event.
+    /// One occurrence of a repeating event, or a repeating task.
     #[serde(default)]
     pub recurring: bool,
     /// Notes. Google's may contain simple HTML.

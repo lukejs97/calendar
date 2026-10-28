@@ -513,6 +513,84 @@ main.loading > * {
   color: var(--error);
 }
 
+/* ---------- New / Edit form ---------- */
+
+.event-form {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.event-form form > .text-input {
+  margin-bottom: 12px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.form-grid[hidden] {
+  display: none;
+}
+
+.form-label {
+  font-size: 13px;
+  color: var(--muted);
+  justify-self: end;
+}
+
+.form-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.form-controls > .text-input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.form-controls > input[type="date"],
+.form-controls > input[type="time"] {
+  flex: 0 1 auto;
+  width: auto;
+}
+
+.form-controls textarea.text-input {
+  resize: vertical;
+  font: inherit;
+  font-size: 15px;
+}
+
+.form-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.dialog .form-notes,
+.form-notes p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.form-note-row {
+  font-size: 14px;
+}
+
+.primary-button.danger {
+  background: var(--error);
+}
+
 .quick-header {
   display: flex;
   align-items: center;

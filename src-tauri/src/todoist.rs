@@ -1,5 +1,5 @@
-//! Todoist (API v1): reads active tasks that have a due date, adds tasks, and
-//! completes or reopens them. Authenticates with the user's personal API token (Todoist →
+//! Todoist (API v1): reads active tasks that have a due date; adds, edits,
+//! reschedules and deletes tasks; completes or reopens them. Authenticates with the user's personal API token (Todoist →
 //! Settings → Integrations → Developer), kept in the OS keychain.
 
 use std::collections::HashMap;
@@ -43,16 +43,66 @@ pub struct ProjectInfo {
     pub inbox: bool,
 }
 
-/// A task to add, as the quick-add box understood it.
+/// A task as the New or Edit form filled it in.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewTask {
+pub struct TaskDraft {
     pub content: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `None` for the Inbox when adding; when editing, leaves it where it is.
     pub project_id: Option<String>,
-    /// "YYYY-MM-DD" for a due day, or an RFC 3339 time; `None` for no due date.
-    pub due: Option<String>,
+    /// `None` leaves an existing task's due date as it is (and adds none).
+    pub due: Option<TaskDue>,
     /// 1 (most urgent) to 4, as numbered in the Todoist app.
     pub priority: Option<u8>,
+}
+
+/// A task's due date: none; a day ("YYYY-MM-DD") or time (RFC 3339); or
+/// words Todoist reads itself, such as a repeat ("every Monday at 7am").
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "at")]
+pub enum TaskDue {
+    None,
+    At(String),
+    Words(String),
+}
+
+impl TaskDraft {
+    fn to_json(&self) -> Result<serde_json::Value> {
+        let content = self.content.trim();
+        if content.is_empty() {
+            return Err(AppError::InvalidInput("the task needs a name".into()));
+        }
+        let mut body = json!({ "content": content });
+        if let Some(description) = &self.description {
+            body["description"] = json!(description.trim());
+        }
+        if let Some(priority) = self.priority {
+            // Todoist's API counts the other way: 4 is P1.
+            body["priority"] = json!(5 - priority.clamp(1, 4));
+        }
+        if let Some(due) = &self.due {
+            set_due(&mut body, due)?;
+        }
+        Ok(body)
+    }
+}
+
+/// Puts a due date or time into a request, or removes it.
+fn set_due(body: &mut serde_json::Value, due: &TaskDue) -> Result<()> {
+    match due {
+        TaskDue::None => body["due_string"] = json!("no date"),
+        TaskDue::Words(words) => body["due_string"] = json!(words.trim()),
+        TaskDue::At(day) if NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok() => body["due_date"] = json!(day),
+        TaskDue::At(time) => {
+            let time = DateTime::parse_from_rfc3339(time)
+                .map_err(|_| AppError::InvalidInput(format!("not a date or time: {time:?}")))?;
+            // Todoist wants a fixed time in UTC.
+            body["due_datetime"] = json!(time.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -77,6 +127,8 @@ struct Task {
 struct Due {
     date: String,
     datetime: Option<String>,
+    #[serde(default)]
+    is_recurring: bool,
 }
 
 #[derive(Deserialize)]
@@ -242,6 +294,7 @@ fn to_agenda_item(
     };
 
     let project = projects.get(task.project_id.as_str());
+    let recurring = task.due.as_ref().is_some_and(|d| d.is_recurring);
     Some(AgendaItem {
         url: Some(format!("https://app.todoist.com/app/task/{}", task.id)),
         id: format!("todoist:{}", task.id),
@@ -259,10 +312,11 @@ fn to_agenda_item(
         // Flip to Todoist's on-screen numbering: 1 = P1 (most urgent).
         priority: Some(5 - task.priority.clamp(1, 4)),
         account: None,
-        calendar_id: None,
-        event_id: None,
-        editable: false,
-        recurring: false,
+        list_id: Some(task.project_id),
+        source_id: Some(task.id),
+        series_id: None,
+        editable: !recurring,
+        recurring,
         description: Some(task.description).filter(|d| !d.trim().is_empty()),
         attendees: Vec::new(),
         conference_url: None,
@@ -287,30 +341,37 @@ pub async fn projects(http: &reqwest::Client, token: &str) -> Result<Vec<Project
 }
 
 /// Adds a task. Without a project, it goes to the Inbox.
-pub async fn create_task(http: &reqwest::Client, token: &str, task: &NewTask) -> Result<()> {
-    let content = task.content.trim();
-    if content.is_empty() {
-        return Err(AppError::InvalidInput("the task needs a name".into()));
-    }
-    let mut body = json!({ "content": content });
+pub async fn create_task(http: &reqwest::Client, token: &str, task: &TaskDraft) -> Result<()> {
+    let mut body = task.to_json()?;
     if let Some(project) = &task.project_id {
         body["project_id"] = json!(project);
     }
-    if let Some(priority) = task.priority {
-        // Todoist's API counts the other way: 4 is P1.
-        body["priority"] = json!(5 - priority.clamp(1, 4));
-    }
-    match task.due.as_deref() {
-        None => {}
-        Some(day) if NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok() => body["due_date"] = json!(day),
-        Some(time) => {
-            let time = DateTime::parse_from_rfc3339(time)
-                .map_err(|_| AppError::InvalidInput(format!("not a date or time: {time:?}")))?;
-            // Todoist wants a fixed time in UTC.
-            body["due_datetime"] = json!(time.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string());
-        }
-    }
     check(http.post(api_url(&["tasks"])).bearer_auth(token).json(&body).send().await?).await?;
+    Ok(())
+}
+
+/// Saves an edited task, moving it to `task.project_id` if that's set.
+pub async fn update_task(http: &reqwest::Client, token: &str, task_id: &str, task: &TaskDraft) -> Result<()> {
+    let body = task.to_json()?;
+    check(http.post(api_url(&["tasks", task_id])).bearer_auth(token).json(&body).send().await?).await?;
+    if let Some(project) = &task.project_id {
+        let move_to = json!({ "project_id": project });
+        check(http.post(api_url(&["tasks", task_id, "move"])).bearer_auth(token).json(&move_to).send().await?)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Changes only a task's due date or time (dragging it).
+pub async fn set_task_due(http: &reqwest::Client, token: &str, task_id: &str, due: &TaskDue) -> Result<()> {
+    let mut body = json!({});
+    set_due(&mut body, due)?;
+    check(http.post(api_url(&["tasks", task_id])).bearer_auth(token).json(&body).send().await?).await?;
+    Ok(())
+}
+
+pub async fn delete_task(http: &reqwest::Client, token: &str, task_id: &str) -> Result<()> {
+    check(http.delete(api_url(&["tasks", task_id])).bearer_auth(token).send().await?).await?;
     Ok(())
 }
 
@@ -323,4 +384,39 @@ pub async fn set_completed(http: &reqwest::Client, token: &str, item_id: &str, c
     let action = if completed { "close" } else { "reopen" };
     check(http.post(api_url(&["tasks", task_id, action])).bearer_auth(token).send().await?).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn due_dates_and_times() {
+        let due = |json: serde_json::Value| -> serde_json::Value {
+            let mut body = json!({});
+            set_due(&mut body, &serde_json::from_value(json).unwrap()).unwrap();
+            body
+        };
+        assert_eq!(due(json!({ "kind": "at", "at": "2026-11-04" })), json!({ "due_date": "2026-11-04" }));
+        assert_eq!(
+            due(json!({ "kind": "at", "at": "2026-11-04T16:00:00+01:00" })),
+            json!({ "due_datetime": "2026-11-04T15:00:00Z" })
+        );
+        assert_eq!(due(json!({ "kind": "none" })), json!({ "due_string": "no date" }));
+        assert_eq!(due(json!({ "kind": "words", "at": "every Monday" })), json!({ "due_string": "every Monday" }));
+    }
+
+    #[test]
+    fn priority_is_flipped_for_the_api() {
+        let task = TaskDraft {
+            content: "Pay rent".into(),
+            description: None,
+            project_id: None,
+            due: None,
+            priority: Some(1),
+        };
+        assert_eq!(task.to_json().unwrap()["priority"], 4);
+        // Not given: the due date is left alone.
+        assert!(task.to_json().unwrap().get("due_date").is_none());
+    }
 }

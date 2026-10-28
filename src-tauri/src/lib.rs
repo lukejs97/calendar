@@ -10,14 +10,14 @@ use std::time::Duration;
 
 use chrono::NaiveDate;
 use futures::future::join_all;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use agenda::Agenda;
 use cache::AgendaCache;
 use error::{AppError, Result};
 use google::auth::GoogleAuth;
-use google::calendar::{EventCalendar, NewEvent};
+use google::calendar::{EventCalendar, EventDraft, EventTimes};
 
 struct AppState {
     http: reqwest::Client,
@@ -149,32 +149,64 @@ async fn event_calendars(state: State<'_, AppState>) -> Result<Vec<AccountCalend
         .collect())
 }
 
-/// Adds an event to `calendar_id`, one of `email`'s calendars.
+/// Adds an event to `calendar_id`, one of `email`'s calendars, inviting its guests.
 #[tauri::command]
 async fn create_event(
     state: State<'_, AppState>,
     email: String,
     calendar_id: String,
-    event: NewEvent,
+    event: EventDraft,
 ) -> Result<()> {
     let token = state.google_auth.access_token(&email).await?;
     google::calendar::create_event(&state.http, &token, &calendar_id, &event).await
 }
 
-/// Moves (or resizes) a timed Google event. `start` and `end` are RFC 3339.
-#[tauri::command]
-async fn move_event(
-    state: State<'_, AppState>,
+/// Which Google event: its account, calendar and ID. For a repeating event,
+/// one occurrence's ID affects that occurrence; the series' ID, all of them.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventRef {
     email: String,
     calendar_id: String,
     event_id: String,
-    start: String,
-    end: String,
-    time_zone: Option<String>,
+}
+
+/// Saves an edited event, first moving it to `move_to` (another calendar in
+/// the same account) if given. `notify_guests` emails them about the change.
+#[tauri::command]
+async fn update_event(
+    state: State<'_, AppState>,
+    target: EventRef,
+    event: EventDraft,
+    move_to: Option<String>,
+    notify_guests: bool,
 ) -> Result<()> {
-    let token = state.google_auth.access_token(&email).await?;
-    google::calendar::move_event(&state.http, &token, &calendar_id, &event_id, &start, &end, time_zone.as_deref())
+    let token = state.google_auth.access_token(&target.email).await?;
+    let mut calendar_id = target.calendar_id;
+    if let Some(destination) = move_to.filter(|d| *d != calendar_id) {
+        google::calendar::move_to_calendar(&state.http, &token, &calendar_id, &target.event_id, &destination).await?;
+        calendar_id = destination;
+    }
+    google::calendar::update_event(&state.http, &token, &calendar_id, &target.event_id, &event, notify_guests).await
+}
+
+/// Moves or resizes an event (dragging it).
+#[tauri::command]
+async fn set_event_times(
+    state: State<'_, AppState>,
+    target: EventRef,
+    times: EventTimes,
+    notify_guests: bool,
+) -> Result<()> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::calendar::set_event_times(&state.http, &token, &target.calendar_id, &target.event_id, &times, notify_guests)
         .await
+}
+
+#[tauri::command]
+async fn delete_event(state: State<'_, AppState>, target: EventRef, notify_guests: bool) -> Result<()> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::calendar::delete_event(&state.http, &token, &target.calendar_id, &target.event_id, notify_guests).await
 }
 
 fn parse_date(s: &str) -> Result<NaiveDate> {
@@ -205,8 +237,25 @@ async fn todoist_projects(state: State<'_, AppState>) -> Result<Vec<todoist::Pro
 }
 
 #[tauri::command]
-async fn create_task(state: State<'_, AppState>, task: todoist::NewTask) -> Result<()> {
+async fn create_task(state: State<'_, AppState>, task: todoist::TaskDraft) -> Result<()> {
     todoist::create_task(&state.http, &todoist_token()?, &task).await
+}
+
+/// `id` is the task's own Todoist ID.
+#[tauri::command]
+async fn update_task(state: State<'_, AppState>, id: String, task: todoist::TaskDraft) -> Result<()> {
+    todoist::update_task(&state.http, &todoist_token()?, &id, &task).await
+}
+
+/// Reschedules a task (dragging it).
+#[tauri::command]
+async fn set_task_due(state: State<'_, AppState>, id: String, due: todoist::TaskDue) -> Result<()> {
+    todoist::set_task_due(&state.http, &todoist_token()?, &id, &due).await
+}
+
+#[tauri::command]
+async fn delete_task(state: State<'_, AppState>, id: String) -> Result<()> {
+    todoist::delete_task(&state.http, &todoist_token()?, &id).await
 }
 
 fn todoist_token() -> Result<String> {
@@ -260,12 +309,17 @@ pub fn run() {
             search,
             event_calendars,
             create_event,
-            move_event,
+            update_event,
+            set_event_times,
+            delete_event,
             todoist_status,
             todoist_connect,
             todoist_disconnect,
             todoist_projects,
             create_task,
+            update_task,
+            set_task_due,
+            delete_task,
             set_task_completed,
         ])
         .run(tauri::generate_context!())
