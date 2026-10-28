@@ -19,15 +19,24 @@ Xcode. This guide is for you **and** for Claude Code running on the Mac.
 - **Phone layout**: safe areas for the notch/home bar, swipe left/right to
   move between days/weeks, larger tap targets, Agenda as the first view.
 
-**Not yet verified** (the first iOS build will tell):
+**Verified on the Mac** (Xcode 27.1, iPhone 18 Pro Simulator, 2026-10-28):
 
-1. The iOS-only Rust code (`#[cfg(mobile)]` parts of `google/auth.rs` and
-   `lib.rs`) has never been compiled. Fix any compile errors.
-2. The `keyring` crate's `apple-native` feature is expected to use the iOS
-   Keychain. If it doesn't build or work on iOS, switch `secrets.rs` to an
-   iOS-capable store.
-3. The deep-link plugin should add the URL scheme to the app's Info.plist
-   (`CFBundleURLTypes`). Check `src-tauri/gen/apple/` after `ios init`.
+1. The iOS-only Rust code compiles with no changes.
+2. `keyring`'s `apple-native` feature uses the iOS Keychain: after signing
+   in, quitting and relaunching the app stays signed in.
+3. The deep-link plugin writes the URL scheme into
+   `src-tauri/gen/apple/calendar_iOS/Info.plist` (`CFBundleURLTypes`) during
+   the build, and Google's redirect opens the app and finishes sign-in.
+
+The Xcode project Tauri generated (`src-tauri/gen/apple/`) is committed;
+`ios init` only needs re-running after changing the app ID or adding plugins.
+
+**If the URL scheme goes missing from Info.plist** (sign-in opens Google but
+"Open in Calendar" never appears): the deep-link plugin only updates the
+plist when its build script runs under the Tauri CLI. A plain
+`cargo check --target aarch64-apple-ios-sim` caches a run without the
+config. Fix: `cargo clean -p tauri-plugin-deep-link --target aarch64-apple-ios-sim`
+(in `src-tauri/`), then `npm run tauri ios dev` again.
 
 ## 1. Install the tools (once)
 
@@ -46,6 +55,14 @@ Xcode. This guide is for you **and** for Claude Code running on the Mac.
 
    (Restart Terminal after installing Rust.) Full list:
    <https://tauri.app/start/prerequisites/#ios>
+
+   Alternative used on this Mac: `brew install rustup`, then
+   `rustup default stable` and the `rustup target add` line above. Homebrew's
+   rustup isn't on the PATH by default, so add to `~/.zshrc`:
+   `export PATH=/opt/homebrew/opt/rustup/bin:$PATH` (and
+   `export LANG=en_US.UTF-8`, which CocoaPods wants).
+4. Point the command-line tools at Xcode (not the standalone Command Line
+   Tools): `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 
 ## 2. Get the code onto the Mac
 
@@ -72,6 +89,9 @@ PC (it holds the desktop client secret, so move it privately, e.g. AirDrop or
 a Bitwarden secure note, not email or GitHub).
 
 ## 4. Set up the Xcode project and signing
+
+The Simulator needs no signing; steps 1–3 are only for running on your iPhone.
+Step 4 is already done (the generated project is in the repo).
 
 1. Xcode → Settings → Accounts → **+** → sign in with your Apple ID. This
    creates a free "Personal Team".
