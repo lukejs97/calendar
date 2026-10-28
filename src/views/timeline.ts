@@ -1,6 +1,11 @@
 // Day and week views: a column per day with hours down the side. Timed
 // events are blocks sized by duration; all-day and multi-day items are bars in
 // a strip above the hours.
+//
+// Week view draws six weeks but shows seven days at a time. They slide
+// sideways under the trackpad, settling on a day, as in Apple's Calendar; the
+// view is told which day is first, and draws a new six weeks around it when
+// it gets near either end.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
 import {
@@ -295,13 +300,26 @@ function dayColumn(ctx: ViewContext, day: Date): HTMLElement {
   return column;
 }
 
-export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]): void {
+/** The sliding strip of each week view on screen, for `slideTimeline`. */
+const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>();
+
+/**
+ * Draws `days`, `visible` of them across the window at a time (all of them
+ * unless sliding), starting at `ctx.anchor`.
+ */
+export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[], visible = days.length): void {
   const timeline = el("div", "timeline");
   timeline.style.setProperty("--columns", String(days.length));
   timeline.style.setProperty("--hour-height", `${HOUR_HEIGHT}px`);
   if (days.length === 1) timeline.classList.add("single-day");
 
-  const body = el("div", "tl-body");
+  // One box scrolls both ways; the day headers stay at the top and the hours
+  // at the left (CSS position: sticky).
+  const scroller = el("div", "tl-scroll");
+  const sliding = days.length > visible;
+  if (sliding) scroller.classList.add("sliding");
+  const top = el("div", "tl-top");
+  top.append(headerRow(ctx, days), allDayRow(ctx, days));
   const grid = el("div", "tl-row tl-grid");
   const hours = el("div", "tl-gutter tl-hours");
   for (let h = 1; h < 24; h++) {
@@ -310,19 +328,72 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
     hours.append(label);
   }
   grid.append(hours, ...days.map((day) => dayColumn(ctx, day)));
-  body.append(grid);
+  scroller.append(top, grid);
+  timeline.append(scroller);
 
-  timeline.append(headerRow(ctx, days), allDayRow(ctx, days), body);
-
-  const previousScroll = ctx.preserveScroll ? root.querySelector(".tl-body")?.scrollTop : undefined;
+  const previousScroll = ctx.preserveScroll ? root.querySelector(".tl-scroll")?.scrollTop : undefined;
   root.replaceChildren(timeline);
+
+  // Columns are a seventh (or all) of the width beside the hours.
+  let first = Math.min(Math.max(0, daysBetween(days[0], ctx.anchor)), days.length - visible);
+  let column = 0;
+  const size = () => {
+    const gutter = parseFloat(getComputedStyle(timeline).getPropertyValue("--gutter")) || 56;
+    column = Math.max(1, (scroller.clientWidth - gutter) / visible);
+    timeline.style.setProperty("--column", `${column}px`);
+    scroller.scrollLeft = first * column;
+  };
+  size();
+  const resized = new ResizeObserver(() => {
+    if (!scroller.isConnected) return resized.disconnect();
+    size();
+  });
+  resized.observe(scroller);
+
+  if (sliding) {
+    sliders.set(root, { days, column: () => column });
+    let settle: number | undefined;
+    scroller.addEventListener(
+      "scroll",
+      () => {
+        // A replaced view's box reports scrolling back to 0 as it goes.
+        if (!scroller.isConnected) return;
+        const index = Math.round(scroller.scrollLeft / column);
+        if (index !== first) {
+          first = index;
+          ctx.slid?.(days[first], false);
+        }
+        window.clearTimeout(settle);
+        settle = window.setTimeout(() => {
+          if (scroller.isConnected) ctx.slid?.(days[first], true);
+        }, 200);
+      },
+      { passive: true },
+    );
+  }
+
   if (ctx.reveal) {
-    body.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * HOUR_HEIGHT;
+    scroller.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * HOUR_HEIGHT;
   } else if (previousScroll !== undefined) {
-    body.scrollTop = previousScroll;
+    scroller.scrollTop = previousScroll;
   } else {
     // Start at 7 AM, or a couple of hours before now when today is shown.
-    const showsToday = days.some((day) => isSameDay(day, ctx.now));
-    body.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * HOUR_HEIGHT;
+    const shown = days.slice(first, first + visible);
+    const showsToday = shown.some((day) => isSameDay(day, ctx.now));
+    scroller.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * HOUR_HEIGHT;
   }
+}
+
+/**
+ * Slides the week view in `root` until `day` is first, smoothly. False if
+ * `day` isn't among the days drawn (then draw them afresh instead).
+ */
+export function slideTimeline(root: HTMLElement, day: Date, visible = 7): boolean {
+  const slider = sliders.get(root);
+  const scroller = root.querySelector<HTMLElement>(".tl-scroll.sliding");
+  if (!slider || !scroller) return false;
+  const index = daysBetween(slider.days[0], day);
+  if (index < 0 || index > slider.days.length - visible) return false;
+  scroller.scrollTo({ left: index * slider.column(), behavior: "smooth" });
+  return true;
 }

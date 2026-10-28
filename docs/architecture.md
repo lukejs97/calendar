@@ -71,6 +71,13 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 - `sync.ts`: each window emits `agenda-changed` after a change, and the
   other reloads.
 
+Week view slides: it draws six weeks (`WEEK_DRAWN_DAYS`) with columns a
+seventh of the width, in one box that scrolls both ways (headers and hours
+are `position: sticky`), with `scroll-snap-type: x mandatory` so it settles
+on a day. `ViewContext.slid` reports the first day shown; once it settles in
+another week, `main.ts` draws six weeks around it. Arrows and Today slide
+there with `slideTimeline` when it's among the days drawn.
+
 ## Todoist (done)
 
 - Uses Todoist's API v1 with the personal API token, stored in the keychain

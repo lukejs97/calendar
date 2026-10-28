@@ -875,21 +875,50 @@ main.loading > * {
   height: 100%;
 }
 
-.tl-row {
-  display: grid;
-  grid-template-columns: var(--gutter) repeat(var(--columns), minmax(0, 1fr));
+/* Scrolls up and down through the hours, and (week view) sideways through
+   the days. views/timeline.ts sets --column to fit 7 days (or 1) across. */
+.tl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
-/* Reserve the body's scrollbar width in the rows above it so columns line up. */
-.tl-header,
-.tl-allday,
-.tl-body {
-  scrollbar-gutter: stable;
+/* Comes to rest on a day, as in Apple's Calendar. */
+.tl-scroll.sliding {
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: var(--gutter);
+}
+
+.tl-scroll.sliding .tl-day-header {
+  scroll-snap-align: start;
+}
+
+.tl-row {
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(var(--columns), var(--column, minmax(0, 1fr)));
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Day headers and all-day bars stay at the top while the hours scroll. */
+.tl-top {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  width: max-content;
+  min-width: 100%;
+  background: var(--bg);
+}
+
+/* The hours (and the corner above them) stay at the left while days slide. */
+.tl-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  background: var(--bg);
 }
 
 .tl-header {
-  flex: none;
-  overflow: hidden;
   border-bottom: 1px solid var(--border);
 }
 
@@ -945,13 +974,10 @@ main.loading > * {
 }
 
 .tl-allday {
-  flex: none;
   grid-auto-rows: 22px;
   row-gap: 2px;
   min-height: 28px;
-  max-height: 30%;
   padding: 3px 0;
-  overflow-y: auto;
   border-bottom: 1px solid var(--border);
 }
 
@@ -991,18 +1017,13 @@ main.loading > * {
   border-bottom-right-radius: 0;
 }
 
-.tl-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
 .tl-grid {
   height: calc(24 * var(--hour-height));
 }
 
 .tl-hours {
-  position: relative;
+  /* Sticky (see .tl-gutter) also places the hour labels. */
+  position: sticky;
 }
 
 .tl-hour {

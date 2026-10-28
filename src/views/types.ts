@@ -23,4 +23,9 @@ export interface ViewContext {
   openItem(item: AgendaItem): void;
   /** Moves or resizes an event, or reschedules a task (see `AgendaItem.editable`). */
   moveItem(item: AgendaItem, start: Date, end: Date): void;
+  /**
+   * Week view: the days slid sideways and `first` is now the first one shown.
+   * `settled` once they've stopped moving.
+   */
+  slid?(first: Date, settled: boolean): void;
 }

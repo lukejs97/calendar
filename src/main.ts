@@ -22,8 +22,18 @@ import { openEdit, openNew } from "./event-form";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
-import { itemEnd, itemStart, localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
-import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
+import {
+  itemEnd,
+  itemStart,
+  localTimeZone,
+  overlaps,
+  startOfDay,
+  startOfWeek,
+  timeFormat,
+  toDateString,
+  toLocalIso,
+} from "./time";
+import { slideTimeline, VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
 const CACHE_LIMIT = 24;
@@ -38,7 +48,8 @@ const toolbar = document.querySelector<HTMLElement>("#toolbar")!;
 const viewSwitcher = document.querySelector<HTMLElement>("#view-switcher")!;
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!;
 
-const state = { view: savedView(), anchor: startOfDay(new Date()) };
+const firstView = savedView();
+const state = { view: firstView, anchor: firstView === "week" ? startOfWeek(new Date()) : startOfDay(new Date()) };
 
 /** Recently loaded ranges, so going back and forth shows something instantly. */
 const cache = new Map<string, Agenda>();
@@ -101,14 +112,26 @@ function render(agenda: Agenda): void {
     to,
     anchor: state.anchor,
     now: new Date(),
-    preserveScroll: shown?.view === state.view && shown.range === key,
+    // Week view keeps its place in the day when drawing more weeks to slide to.
+    preserveScroll: shown?.view === state.view && (shown.range === key || state.view === "week"),
     reveal: revealNow,
     goTo,
     toggleTask,
     openItem: showDetails,
     moveItem,
+    slid,
   });
   shown = { view: state.view, range: key, agenda };
+}
+
+/**
+ * Week view slid to start on `first`: show its dates, and once it stops,
+ * draw the weeks around it if it's near the end of those drawn.
+ */
+function slid(first: Date, settled: boolean): void {
+  state.anchor = first;
+  updateToolbar();
+  if (settled && shown && currentRange().key !== shown.range) void load();
 }
 
 function rerender(): void {
@@ -202,7 +225,10 @@ async function load(): Promise<void> {
   const request = ++latestRequest;
   let cached = cache.get(key);
   if (cached) render(cached);
-  else {
+  else if (shown?.view === "week" && state.view === "week") {
+    // Slid on to new weeks: most of what's needed is already on screen.
+    render(shown.agenda);
+  } else {
     app.classList.add("loading");
     void getSavedAgenda(toDateString(from), toDateString(to))
       .then((saved) => {
@@ -241,13 +267,20 @@ async function load(): Promise<void> {
 
 function goTo(view: ViewName, date: Date): void {
   state.view = view;
-  state.anchor = startOfDay(date);
+  // A week is shown from its first day (until slid).
+  state.anchor = view === "week" ? startOfWeek(date) : startOfDay(date);
   saveView(view);
   void load();
 }
 
 function step(direction: 1 | -1): void {
-  goTo(state.view, VIEWS[state.view].step(state.anchor, direction));
+  showDate(VIEWS[state.view].step(state.anchor, direction));
+}
+
+/** Goes to `date` in the current view; in week view by sliding there, if it's near. */
+function showDate(date: Date): void {
+  if (state.view === "week" && slideTimeline(app, startOfWeek(date))) return;
+  goTo(state.view, date);
 }
 
 function showCalendar(): void {
@@ -335,7 +368,7 @@ function setUpControls(): void {
     viewSwitcher.append(button);
   }
 
-  document.querySelector("#today")!.addEventListener("click", () => goTo(state.view, new Date()));
+  document.querySelector("#today")!.addEventListener("click", () => showDate(new Date()));
   document.querySelector("#prev")!.addEventListener("click", () => step(-1));
   document.querySelector("#next")!.addEventListener("click", () => step(1));
   refreshButton.addEventListener("click", load);
@@ -368,7 +401,7 @@ function setUpControls(): void {
     const key = e.key.toLowerCase();
     const view = VIEW_ORDER.find((name) => VIEWS[name].key === key);
     if (view) goTo(view, state.anchor);
-    else if (key === "t") goTo(state.view, new Date());
+    else if (key === "t") showDate(new Date());
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
     else if (e.key === "ArrowLeft") step(-1);
@@ -386,7 +419,8 @@ function setUpControls(): void {
   app.addEventListener(
     "wheel",
     (e) => {
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      // Week view slides through the days itself.
+      if (state.view === "week" || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       window.clearTimeout(swipeEnded);
       swipeEnded = window.setTimeout(() => {
@@ -409,7 +443,7 @@ function setUpControls(): void {
     "touchstart",
     (e) => {
       const touch = e.touches[0];
-      swipe = e.touches.length === 1 ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : undefined;
+      swipe = e.touches.length === 1 && state.view !== "week" ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : undefined;
     },
     { passive: true },
   );

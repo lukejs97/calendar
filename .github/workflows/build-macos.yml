@@ -6,6 +6,11 @@
 #
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
 # GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, the same values as in src-tauri/.env.
+#
+# Optional third secret, MAC_SIGNING_CERT: your own signing certificate (see
+# docs/mac-signing.md). Signed with it, every build is the same app to macOS,
+# so "Always Allow" for its keychain items lasts across updates. Without it,
+# builds are signed ad hoc and macOS asks again after each update.
 
 name: Build macOS app
 
@@ -47,8 +52,40 @@ jobs:
 
       - run: npm ci
 
+      - name: Set up the signing certificate
+        env:
+          MAC_SIGNING_CERT: ${{ secrets.MAC_SIGNING_CERT }}
+        run: |
+          if [ -z "$MAC_SIGNING_CERT" ]; then
+            echo "No MAC_SIGNING_CERT secret: signing ad hoc (macOS will ask for keychain access after updates)."
+            exit 0
+          fi
+          # A keychain of its own for this run, holding just the certificate.
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          printf '%s' "$MAC_SIGNING_CERT" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          # The .p12's password isn't a secret: the file itself is (docs/mac-signing.md).
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -f pkcs12 -P minuteman -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          # Let codesign find it, alongside the usual keychains.
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          # Tauri signs with this identity (the certificate's name).
+          echo "APPLE_SIGNING_IDENTITY=Minuteman Signing" >> "$GITHUB_ENV"
+
       - name: Build
         run: npm run tauri build -- --target universal-apple-darwin --bundles dmg
+
+      - name: Show how the app is signed
+        run: |
+          app=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app 2>/dev/null | head -1)
+          if [ -z "$app" ]; then echo "No .app found to check."; exit 0; fi
+          codesign --verify --verbose "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
+          codesign --display --requirements - "$app" 2>&1 | grep designated || true
 
       - uses: actions/upload-artifact@v4
         with:

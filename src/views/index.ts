@@ -1,6 +1,6 @@
 // Each view says which dates it shows, how Previous/Next move, what the title
 // is, and how to draw itself.
-import { addDays, addMonths, startOfWeek } from "../time";
+import { addDays, addMonths, isSameDay, startOfWeek } from "../time";
 import { renderAgenda } from "./agenda";
 import { renderMonth } from "./month";
 import { renderTimeline } from "./timeline";
@@ -8,6 +8,7 @@ import type { ViewContext, ViewName } from "./types";
 import { renderYear } from "./year";
 
 export type { ViewContext, ViewName } from "./types";
+export { slideTimeline } from "./timeline";
 
 interface ViewSpec {
   label: string;
@@ -20,6 +21,7 @@ interface ViewSpec {
 }
 
 const AGENDA_DAYS = 14;
+const WEEK_DRAWN_DAYS = 6 * 7;
 
 const dayTitle = new Intl.DateTimeFormat(undefined, {
   weekday: "long",
@@ -46,16 +48,20 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
   week: {
     label: "Week",
     key: "w",
+    // The anchor is the first day shown; it's a week's first day until the
+    // days are slid. Six weeks around it are drawn, to slide through.
     range: (anchor) => {
-      const from = startOfWeek(anchor);
-      return { from, to: addDays(from, 7) };
+      const from = addDays(startOfWeek(anchor), -2 * 7);
+      return { from, to: addDays(from, WEEK_DRAWN_DAYS) };
     },
-    step: (anchor, dir) => addDays(anchor, 7 * dir),
-    title: (anchor) => {
-      const from = startOfWeek(anchor);
-      return rangeTitle.formatRange(from, addDays(from, 6));
+    step: (anchor, dir) => {
+      const weekStart = startOfWeek(anchor);
+      // From part way through a week: back to its start, or on to the next.
+      if (dir < 0 && !isSameDay(anchor, weekStart)) return weekStart;
+      return addDays(weekStart, 7 * dir);
     },
-    render: (root, ctx) => renderTimeline(root, ctx, daysFrom(ctx.from, 7)),
+    title: (anchor) => rangeTitle.formatRange(anchor, addDays(anchor, 6)),
+    render: (root, ctx) => renderTimeline(root, ctx, daysFrom(ctx.from, WEEK_DRAWN_DAYS), 7),
   },
   month: {
     label: "Month",

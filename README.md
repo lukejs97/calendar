@@ -112,7 +112,10 @@ GitHub can build the Mac app for you (`.github/workflows/build-macos.yml`):
 4. The first time, macOS blocks it because the app isn't notarized (Apple's
    paid check): System Settings → Privacy & Security → **Open Anyway**.
 5. When asked whether Minuteman may use its keychain item, choose
-   **Always Allow**.
+   **Always Allow**. To stop macOS asking again after every update, sign
+   builds with your own free certificate: see
+   [docs/mac-signing.md](docs/mac-signing.md) (one Terminal command and one
+   more secret).
 
 The build runs for Apple Silicon and Intel Macs. Private repos get free monthly
 Actions minutes; a Mac build uses a small share of them.
