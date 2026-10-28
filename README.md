@@ -61,7 +61,8 @@ date then appear with a checkbox in every view, overdue ones on today. Ticking
 one completes it in Todoist. The token is kept in your OS keychain.
 
 Keyboard: `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `N` adds an
-event or task, `/` searches, `←` `→` go back and forward. Click a date (in the
+event or task, `/` searches, `←` `→` go back and forward (or swipe sideways
+with two fingers on a trackpad). Click a date (in the
 week header, month grid or year view) to open that day.
 
 To work on the UI without the Rust side, run `npm run dev` and open

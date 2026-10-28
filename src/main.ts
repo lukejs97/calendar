@@ -377,6 +377,32 @@ function setUpControls(): void {
     e.preventDefault();
   });
 
+  // Two fingers sideways on a trackpad (or Shift + mouse wheel): the next or
+  // previous day, week, etc., like the arrows. One step per swipe: the
+  // scrolling that carries on after the fingers lift is part of the same one.
+  let sideways = 0;
+  let swiped = false;
+  let swipeEnded: number | undefined;
+  app.addEventListener(
+    "wheel",
+    (e) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      window.clearTimeout(swipeEnded);
+      swipeEnded = window.setTimeout(() => {
+        sideways = 0;
+        swiped = false;
+      }, 200);
+      if (swiped) return;
+      sideways += e.deltaX;
+      if (Math.abs(sideways) > 60) {
+        swiped = true;
+        step(sideways > 0 ? 1 : -1);
+      }
+    },
+    { passive: false },
+  );
+
   // Swipe left/right (touch screens) to go to the next/previous day, week, etc.
   let swipe: { x: number; y: number; time: number } | undefined;
   app.addEventListener(
