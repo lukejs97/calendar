@@ -114,6 +114,25 @@ button:disabled {
   .actions {
     gap: 0;
   }
+
+  /* Five buttons share a phone's width: narrower sides, same tap height. */
+  .actions .icon-button,
+  .actions .text-button {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}
+
+@media (max-width: 380px) {
+  .actions .icon-button,
+  .actions .text-button {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .actions .text-button {
+    font-size: 12px;
+  }
 }
 
 .icon-button,
@@ -127,6 +146,11 @@ button:disabled {
 .icon-button {
   font-size: 20px;
   line-height: 1.2;
+}
+
+.icon-button svg {
+  display: block;
+  margin: 3px 0;
 }
 
 .text-button {
@@ -487,6 +511,18 @@ main.loading > * {
 
 .text-button.danger {
   color: var(--error);
+}
+
+.quick-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.dialog .quick-header h2 {
+  margin: 0;
 }
 
 .quick-preview {

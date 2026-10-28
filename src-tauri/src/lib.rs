@@ -198,6 +198,21 @@ async fn todoist_connect(state: State<'_, AppState>, token: String) -> Result<()
     secrets::set(secrets::TODOIST_TOKEN, token)
 }
 
+/// Todoist projects to add tasks to, Inbox first.
+#[tauri::command]
+async fn todoist_projects(state: State<'_, AppState>) -> Result<Vec<todoist::ProjectInfo>> {
+    todoist::projects(&state.http, &todoist_token()?).await
+}
+
+#[tauri::command]
+async fn create_task(state: State<'_, AppState>, task: todoist::NewTask) -> Result<()> {
+    todoist::create_task(&state.http, &todoist_token()?, &task).await
+}
+
+fn todoist_token() -> Result<String> {
+    secrets::get(secrets::TODOIST_TOKEN)?.ok_or_else(|| AppError::Config("Todoist isn't connected".into()))
+}
+
 #[tauri::command]
 fn todoist_disconnect(cache: State<'_, AgendaCache>) -> Result<()> {
     secrets::delete(secrets::TODOIST_TOKEN)?;
@@ -208,9 +223,7 @@ fn todoist_disconnect(cache: State<'_, AgendaCache>) -> Result<()> {
 /// `id` is the task's `AgendaItem` id ("todoist:…").
 #[tauri::command]
 async fn set_task_completed(state: State<'_, AppState>, id: String, completed: bool) -> Result<()> {
-    let token = secrets::get(secrets::TODOIST_TOKEN)?
-        .ok_or_else(|| AppError::Config("Todoist isn't connected".into()))?;
-    todoist::set_completed(&state.http, &token, &id, completed).await
+    todoist::set_completed(&state.http, &todoist_token()?, &id, completed).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -251,6 +264,8 @@ pub fn run() {
             todoist_status,
             todoist_connect,
             todoist_disconnect,
+            todoist_projects,
+            create_task,
             set_task_completed,
         ])
         .run(tauri::generate_context!())

@@ -7,11 +7,31 @@ It runs on Windows and macOS.
 **Phase 1** (this): sign in with Google, and see all your calendars in Day,
 Week, Month, Year and Agenda views.
 
-**Add events**: click **+** in the top bar (or press `N`) and type something
-like "Lunch with Sam tomorrow 1pm at Cafe Roma" or "Conference Nov 12-14 in
-Berlin". A preview shows what the app understood; pick the calendar and click
-**Add**. Accounts added before this feature existed need adding again once
-(Accounts → Add account) to give permission.
+**Add events and tasks**: click **+** in the top bar (or press `N`) and type
+something like "Lunch with Sam tomorrow 1pm at Cafe Roma" or "Conference Nov
+12-14 in Berlin". A preview shows what the app understood; pick the calendar
+and click **Add**. Switch to **Task** to add a Todoist task instead ("Submit
+expenses Friday p1"; no date means no due date). Accounts added before this
+feature existed need adding again once (Accounts → Add account) to give
+permission.
+
+**Event details**: click an event or task for its time, place (with a map
+link), a **Join** button for Google Meet, Zoom, Teams or Webex calls, guests
+and their replies, and notes.
+
+**Move events**: in Day and Week view, drag an event to another time or day,
+or drag its bottom edge to make it longer or shorter (15-minute steps; with a
+mouse or trackpad). Only events you may change can be dragged.
+
+**Search**: the magnifier in the top bar (or `/`, or Cmd/Ctrl+F) searches
+events and tasks from a year back to a year ahead.
+
+**Alerts**: on the Mac and Windows, the app pops up a notification at each
+event's reminder times from Google Calendar (e.g. 10 minutes before), while
+it's open.
+
+**Offline**: the app keeps what it last loaded, opens with it straight away,
+and shows it (and searches it) when there's no internet.
 
 **More than one Google account**: click **Accounts** in the top bar, then
 **Add account**, and pick the other account in your browser. Events from all
@@ -25,8 +45,8 @@ date then appear with a checkbox in every view, overdue ones on today. Ticking
 one completes it in Todoist. The token is kept in your OS keychain.
 
 Keyboard: `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `N` adds an
-event, `←` `→` go back and forward. Click an event to open it in Google Calendar. Click a date
-(in the week header, month grid or year view) to open that day.
+event or task, `/` searches, `←` `→` go back and forward. Click a date (in the
+week header, month grid or year view) to open that day.
 
 To work on the UI without the Rust side, run `npm run dev` and open
 <http://localhost:1420> in a browser. It shows sample events (from
@@ -88,6 +108,11 @@ Actions minutes; a Mac build uses a small share of them.
 - **Access tokens:** in memory only.
 - **Removing an account** (Accounts → Remove) deletes its token from the
   keychain and asks Google to revoke it.
+- **Saved events for offline use:** `agenda.json` in the app's cache folder
+  (on macOS `~/Library/Caches/com.lukesassa.calendar`, on Windows
+  `%LOCALAPPDATA%\com.lukesassa.calendar`). Deleting it is safe; the app just
+  fetches again. Removing an account or disconnecting Todoist deletes its
+  saved items.
 
 On macOS, unsigned development builds may ask for Keychain access after each
 rebuild. Click "Always Allow".

@@ -102,6 +102,25 @@ export interface SearchResults {
   warnings: string[];
 }
 
+/** A Todoist project. Mirrors `ProjectInfo` in src-tauri/src/todoist.rs. */
+export interface TodoistProject {
+  id: string;
+  name: string;
+  color: string | null;
+  inbox: boolean;
+}
+
+/** Mirrors `NewTask` in src-tauri/src/todoist.rs. */
+export interface NewTask {
+  content: string;
+  /** Null for the Inbox. */
+  projectId: string | null;
+  /** "YYYY-MM-DD", an ISO time with offset, or null for no due date. */
+  due: string | null;
+  /** 1 (most urgent) to 4, as in the Todoist app. */
+  priority: number | null;
+}
+
 /** Shape of every error a command rejects with (see src-tauri/src/error.rs). */
 export interface AppError {
   kind: "notSignedIn" | "config" | "auth" | "input" | "api" | "network" | "keychain" | "io";
@@ -136,6 +155,8 @@ export const getSavedAgenda = (from: string, to: string) => invoke<Agenda | null
 export const todoistStatus = () => invoke<boolean>("todoist_status");
 export const todoistConnect = (token: string) => invoke<void>("todoist_connect", { token });
 export const todoistDisconnect = () => invoke<void>("todoist_disconnect");
+export const todoistProjects = () => invoke<TodoistProject[]>("todoist_projects");
+export const createTask = (task: NewTask) => invoke<void>("create_task", { task });
 export const setTaskCompleted = (id: string, completed: boolean) =>
   invoke<void>("set_task_completed", { id, completed });
 

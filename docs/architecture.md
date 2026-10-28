@@ -12,8 +12,11 @@
 │ time.ts    date helpers shared by all views         │
 │ api.ts     typed invoke() wrappers                  │
 │ settings.ts Google accounts and Todoist dialogs     │
-│ quick-add.ts "New event" dialog; quick-parse.ts     │
+│ quick-add.ts "New" event/task dialog; quick-parse.ts│
 │            reads the sentence (chrono-node)         │
+│ details.ts event/task details popup                 │
+│ search.ts  search window                            │
+│ alerts.ts  notifications before events (desktop)    │
 │ dev-mock.ts sample data for `npm run dev` in a      │
 │            browser (dev only)                       │
 └───────────────────────┬─────────────────────────────┘
@@ -23,7 +26,9 @@
 │ agenda.rs          AgendaItem model, merge + sort   │
 │ google/auth.rs     OAuth PKCE + loopback, tokens    │
 │ google/calendar.rs Calendar API v3 client           │
-│ todoist.rs         Todoist API v1: tasks, complete  │
+│ todoist.rs         Todoist API v1: tasks, add, done │
+│ search.rs          search across accounts/Todoist   │
+│ cache.rs           saved items for offline use      │
 │ secrets.rs         OS keychain                      │
 │ error.rs           AppError → { kind, message }     │
 └─────────────────────────────────────────────────────┘
@@ -92,12 +97,42 @@ Done for Google events:
   account allowed it (`can_edit_events`). Accounts added before need adding
   again once.
 
-Still to do:
+Tasks: the dialog's Event/Task switch sends the item to Todoist instead
+(`create_task`, POST `/api/v1/tasks`), into the chosen project (Inbox
+first). `parseTask` keeps a place as part of the name, allows no date (no
+due date), and reads "p1"–"p4" as the priority.
 
-- A leading keyword or prefix ("task:", or a toggle) sends the item to
-  Todoist instead (`create_task`; Todoist's own Quick Add API understands
-  dates too).
-- Repeating events ("every Monday"), guests, and editing or deleting events.
+Still to do: repeating events ("every Monday"), inviting guests, and
+editing titles or deleting events.
+
+## Details, moving, search, alerts, offline (done)
+
+- **Details** (`details.ts`): clicking any item opens a popup instead of the
+  browser. Google's HTML notes are parsed with `DOMParser` into a detached
+  document; only text and link addresses are shown (no HTML reaches the
+  page). The video link comes from `conferenceData`/`hangoutLink`, or a
+  Zoom/Meet/Teams/Webex address in the location or notes.
+- **Moving** (`views/timeline.ts`): mouse/trackpad drag in day and week
+  views, in 15-minute steps; the bottom 7px resize. Pointer moves are
+  listened for on the window, because moving the block to another day's
+  column ends pointer capture. `move_event` PATCHes start and end; one
+  occurrence of a repeating event changes only that occurrence.
+  `AgendaItem.editable` = account granted `calendar.events` + calendar
+  owner/writer + organized by you (or `guestsCanModify`).
+- **Search** (`search.rs`): Google's `q` per calendar for a year either
+  side; Todoist tasks matched locally on every word; the offline cache
+  when nothing is reachable. 50 results each side of now.
+- **Alerts** (`alerts.ts`): every 30 s, today's and tomorrow's timed events
+  are checked against their popup reminders (the event's own, or the
+  calendar's defaults). Alerts more than 2 minutes late are skipped (after
+  sleep). Desktop only via `tauri-plugin-notification`, whose permission
+  is in `capabilities/desktop.json` (limited to desktop platforms, so the
+  iOS build doesn't need the plugin). iPhone alerts would need scheduling
+  ahead with iOS.
+- **Offline** (`cache.rs`): each successful fetch replaces the saved items
+  in its range for the sources that loaded; `get_agenda` falls back to them
+  on network errors (`offlineSince` drives the banner), and
+  `get_saved_agenda` lets a view draw instantly before the fetch.
 
 ## Later: branding and design
 

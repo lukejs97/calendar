@@ -192,6 +192,43 @@ export function install(): void {
           warnings: [],
         };
       }
+      case "todoist_projects":
+        return [
+          { id: "inbox", name: "Inbox", color: INBOX.color, inbox: true },
+          { id: "home", name: "Home", color: HOME.color, inbox: false },
+        ];
+      case "create_task": {
+        const { task } = args as { task: { content: string; due: string | null; priority: number | null } };
+        if (task.due) {
+          const allDay = task.due.length === 10;
+          created.push({
+            id: `mock:task:${created.length}`,
+            source: "todoist",
+            kind: "task",
+            title: task.content,
+            start: task.due,
+            end: allDay ? toDateString(addDays(parseDate(task.due), 1)) : task.due,
+            allDay,
+            location: null,
+            color: INBOX.color,
+            listName: "Inbox",
+            url: "https://app.todoist.com/",
+            completed: false,
+            overdue: false,
+            priority: task.priority ?? 4,
+            account: null,
+            calendarId: null,
+            eventId: null,
+            editable: false,
+            recurring: false,
+            description: null,
+            attendees: [],
+            conferenceUrl: null,
+            reminders: [],
+          });
+        }
+        return null;
+      }
       case "get_saved_agenda":
         return null;
       case "event_calendars":

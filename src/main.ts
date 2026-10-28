@@ -280,11 +280,12 @@ function showSignedOut(error?: string): void {
   app.replaceChildren(view);
 }
 
-/** Opens "New event"; once it's added, shows the day it's on. */
+/** Opens "New event" (or task); once it's added, shows the day it's on. */
 function newEvent(): void {
   openQuickAdd((start, allDay) => {
     cache.clear();
     refreshAlerts();
+    if (!start) return void load(); // a task without a date isn't on the calendar
     if (!allDay) reveal = start;
     goTo(state.view, start);
   });

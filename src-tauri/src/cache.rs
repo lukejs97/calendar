@@ -181,7 +181,7 @@ mod tests {
         );
 
         // Next fetch of the same week: account a loaded (its event moved), b failed.
-        cache.store(today, today + TimeDelta::days(7), &[a.clone()], &[event(&a, "a-new", &d(3))]);
+        cache.store(today, today + TimeDelta::days(7), std::slice::from_ref(&a), &[event(&a, "a-new", &d(3))]);
 
         let (week, _) = cache.between(today, today + TimeDelta::days(7)).unwrap();
         assert_eq!(ids(&week), ["a-new", "b-old"]);

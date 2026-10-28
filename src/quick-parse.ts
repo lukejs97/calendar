@@ -11,7 +11,20 @@ export interface ParsedEvent {
   end: Date;
   allDay: boolean;
   location: string | null;
+  /** False when the text named no date or time (then it's all day today). */
+  dated: boolean;
 }
+
+export interface ParsedTask {
+  title: string;
+  /** Null when no date was given. */
+  due: { start: Date; allDay: boolean } | null;
+  /** 1 (most urgent) to 4, from "p1"–"p4" as in Todoist; null if not given. */
+  priority: number | null;
+}
+
+/** "p1"–"p4", as in Todoist. */
+const PRIORITY = /(?:^|\s)p([1-4])(?=\s|$)/i;
 
 const DEFAULT_MINUTES = 60;
 
@@ -31,8 +44,27 @@ const BEFORE_DATE = /(?:^|\s)(?:on|at|from|by|until|till|starting)\s*$/i;
 /** Words left dangling where the date was: "Dinner on" → "Dinner". */
 const DANGLING = /(?:\s+(?:on|at|from|by|until|till|to|for|this|next|in|-|–|,))+$/i;
 
-/** Reads `text` relative to `now`. Returns null if there's no title. */
-export function parseEvent(text: string, now: Date): ParsedEvent | null {
+/**
+ * Reads a task: like an event, but a place stays part of the name ("Buy milk
+ * at Tesco"), there may be no date, and "p1"–"p4" sets the priority.
+ */
+export function parseTask(text: string, now: Date): ParsedTask | null {
+  const priority = PRIORITY.exec(text);
+  const rest = priority ? cut(text, priority.index, priority[0].length) : text;
+  const parsed = parseEvent(rest, now, false);
+  if (!parsed) return null;
+  return {
+    title: parsed.title,
+    due: parsed.dated ? { start: parsed.start, allDay: parsed.allDay } : null,
+    priority: priority ? Number(priority[1]) : null,
+  };
+}
+
+/**
+ * Reads `text` relative to `now`. Returns null if there's no title.
+ * `findPlace`: take " at …", " in …" or " @ …" at the end as the location.
+ */
+export function parseEvent(text: string, now: Date, findPlace = true): ParsedEvent | null {
   let rest = text.trim();
 
   let minutes = DEFAULT_MINUTES;
@@ -73,7 +105,7 @@ export function parseEvent(text: string, now: Date): ParsedEvent | null {
   }
 
   let location: string | null = null;
-  const place = LOCATION.exec(rest);
+  const place = findPlace ? LOCATION.exec(rest) : null;
   if (place) {
     location = (place[1] ?? place[2]).trim();
     rest = rest.slice(0, place.index);
@@ -81,7 +113,7 @@ export function parseEvent(text: string, now: Date): ParsedEvent | null {
 
   const title = tidy(rest);
   if (!title) return null;
-  return { title, start, end, allDay, location: location || null };
+  return { title, start, end, allDay, location: location || null, dated: Boolean(found) };
 }
 
 /**

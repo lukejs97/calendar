@@ -1,11 +1,12 @@
-//! Todoist (API v1): reads active tasks that have a due date, and completes or
-//! reopens them. Authenticates with the user's personal API token (Todoist →
+//! Todoist (API v1): reads active tasks that have a due date, adds tasks, and
+//! completes or reopens them. Authenticates with the user's personal API token (Todoist →
 //! Settings → Integrations → Developer), kept in the OS keychain.
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Days, Local, NaiveDate, NaiveDateTime, TimeDelta};
-use serde::Deserialize;
+use chrono::{DateTime, Days, Local, NaiveDate, NaiveDateTime, TimeDelta, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde::de::DeserializeOwned;
 use url::Url;
 
@@ -28,6 +29,30 @@ struct Project {
     id: String,
     name: String,
     color: Option<String>,
+    #[serde(default)]
+    inbox_project: bool,
+}
+
+/// A project to add tasks to.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInfo {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub inbox: bool,
+}
+
+/// A task to add, as the quick-add box understood it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTask {
+    pub content: String,
+    pub project_id: Option<String>,
+    /// "YYYY-MM-DD" for a due day, or an RFC 3339 time; `None` for no due date.
+    pub due: Option<String>,
+    /// 1 (most urgent) to 4, as numbered in the Todoist app.
+    pub priority: Option<u8>,
 }
 
 #[derive(Deserialize)]
@@ -243,6 +268,50 @@ fn to_agenda_item(
         conference_url: None,
         reminders: Vec::new(),
     })
+}
+
+/// Your projects, Inbox first.
+pub async fn projects(http: &reqwest::Client, token: &str) -> Result<Vec<ProjectInfo>> {
+    let mut projects: Vec<ProjectInfo> = get_all::<Project>(http, token, "projects")
+        .await?
+        .into_iter()
+        .map(|p| ProjectInfo {
+            color: p.color.as_deref().and_then(color_hex).map(String::from),
+            id: p.id,
+            name: p.name,
+            inbox: p.inbox_project,
+        })
+        .collect();
+    projects.sort_by_key(|p| !p.inbox);
+    Ok(projects)
+}
+
+/// Adds a task. Without a project, it goes to the Inbox.
+pub async fn create_task(http: &reqwest::Client, token: &str, task: &NewTask) -> Result<()> {
+    let content = task.content.trim();
+    if content.is_empty() {
+        return Err(AppError::InvalidInput("the task needs a name".into()));
+    }
+    let mut body = json!({ "content": content });
+    if let Some(project) = &task.project_id {
+        body["project_id"] = json!(project);
+    }
+    if let Some(priority) = task.priority {
+        // Todoist's API counts the other way: 4 is P1.
+        body["priority"] = json!(5 - priority.clamp(1, 4));
+    }
+    match task.due.as_deref() {
+        None => {}
+        Some(day) if NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok() => body["due_date"] = json!(day),
+        Some(time) => {
+            let time = DateTime::parse_from_rfc3339(time)
+                .map_err(|_| AppError::InvalidInput(format!("not a date or time: {time:?}")))?;
+            // Todoist wants a fixed time in UTC.
+            body["due_datetime"] = json!(time.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+    }
+    check(http.post(api_url(&["tasks"])).bearer_auth(token).json(&body).send().await?).await?;
+    Ok(())
 }
 
 /// Completes (closes) or reopens a task. `item_id` is an `AgendaItem` id,
