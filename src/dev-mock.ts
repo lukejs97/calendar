@@ -177,6 +177,21 @@ export function install(): void {
         const agenda: Agenda = { accounts, items, warnings: [], offlineSince: null };
         return agenda;
       }
+      case "search": {
+        const query = (args as { query: string }).query.toLowerCase();
+        const today = startOfDay(new Date());
+        const found = sampleItems(addDays(today, -14), addDays(today, 15)).filter((item) =>
+          item.title.toLowerCase().includes(query),
+        );
+        const now = Date.now();
+        const end = (item: AgendaItem) => new Date(item.end ?? item.start).getTime();
+        return {
+          upcoming: found.filter((item) => end(item) > now).slice(0, 50),
+          past: found.filter((item) => end(item) <= now).reverse().slice(0, 50),
+          offline: false,
+          warnings: [],
+        };
+      }
       case "get_saved_agenda":
         return null;
       case "event_calendars":

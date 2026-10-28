@@ -15,8 +15,9 @@ import { refreshAlerts, startAlerts, stopAlerts } from "./alerts";
 import { openDetails } from "./details";
 import { el } from "./dom";
 import { openQuickAdd } from "./quick-add";
+import { openSearch } from "./search";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
-import { localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
+import { itemStart, localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -289,6 +290,14 @@ function newEvent(): void {
   });
 }
 
+/** Opens search; a chosen result shows its day, then its details. */
+function searchEvents(): void {
+  openSearch((item) => {
+    goTo("day", itemStart(item));
+    openDetails(item, toggleTask);
+  });
+}
+
 function setUpControls(): void {
   for (const name of VIEW_ORDER) {
     const spec = VIEWS[name];
@@ -304,6 +313,7 @@ function setUpControls(): void {
   document.querySelector("#next")!.addEventListener("click", () => step(1));
   refreshButton.addEventListener("click", load);
   document.querySelector("#new-event")!.addEventListener("click", newEvent);
+  document.querySelector("#search")!.addEventListener("click", searchEvents);
   document.querySelector("#todoist")!.addEventListener("click", () =>
     openTodoistSettings(() => {
       cache.clear();
@@ -319,14 +329,21 @@ function setUpControls(): void {
   );
 
   document.addEventListener("keydown", (e) => {
-    if (toolbar.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (document.querySelector("dialog[open]")) return;
+    if (toolbar.hidden || document.querySelector("dialog[open]")) return;
+    // Cmd+F (Ctrl+F on Windows) searches, as in most apps.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      searchEvents();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     const key = e.key.toLowerCase();
     const view = VIEW_ORDER.find((name) => VIEWS[name].key === key);
     if (view) goTo(view, state.anchor);
     else if (key === "t") goTo(state.view, new Date());
     else if (key === "n") newEvent();
+    else if (key === "/") searchEvents();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;

@@ -91,6 +91,17 @@ export interface NewEvent {
   timeZone: string | null;
 }
 
+/** Mirrors `SearchResults` in src-tauri/src/search.rs. */
+export interface SearchResults {
+  /** Soonest first. */
+  upcoming: AgendaItem[];
+  /** Most recent first. */
+  past: AgendaItem[];
+  /** True when nothing could be reached and saved items were searched. */
+  offline: boolean;
+  warnings: string[];
+}
+
 /** Shape of every error a command rejects with (see src-tauri/src/error.rs). */
 export interface AppError {
   kind: "notSignedIn" | "config" | "auth" | "input" | "api" | "network" | "keychain" | "io";
@@ -102,6 +113,8 @@ export const authStatus = () => invoke<boolean>("auth_status");
 export const signIn = () => invoke<string>("sign_in");
 export const googleAccounts = () => invoke<string[]>("google_accounts");
 export const removeGoogleAccount = (email: string) => invoke<void>("remove_google_account", { email });
+/** Events and tasks from a year back to a year ahead matching `query`. */
+export const search = (query: string) => invoke<SearchResults>("search", { query });
 export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
 export const createEvent = (email: string, calendarId: string, event: NewEvent) =>
   invoke<void>("create_event", { email, calendarId, event });

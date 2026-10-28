@@ -160,11 +160,37 @@ pub async fn events_between(
     from: DateTime<Local>,
     to: DateTime<Local>,
 ) -> Result<CalendarEvents> {
+    find_events(http, token, account, can_edit, from, to, None).await
+}
+
+/// Events matching `query` (Google searches titles, notes, places and
+/// guests) between `from` and `to`, on all of `account`'s calendars.
+pub async fn search(
+    http: &reqwest::Client,
+    token: &str,
+    account: &str,
+    can_edit: bool,
+    query: &str,
+    from: DateTime<Local>,
+    to: DateTime<Local>,
+) -> Result<CalendarEvents> {
+    find_events(http, token, account, can_edit, from, to, Some(query)).await
+}
+
+async fn find_events(
+    http: &reqwest::Client,
+    token: &str,
+    account: &str,
+    can_edit: bool,
+    from: DateTime<Local>,
+    to: DateTime<Local>,
+    query: Option<&str>,
+) -> Result<CalendarEvents> {
     let calendars = list_calendars(http, token).await?;
 
     // Fetch all calendars at the same time rather than one after another.
     let results =
-        join_all(calendars.iter().map(|cal| list_events(http, token, &cal.id, from, to))).await;
+        join_all(calendars.iter().map(|cal| list_events(http, token, &cal.id, from, to, query))).await;
 
     let mut items = Vec::new();
     let mut warnings = Vec::new();
@@ -311,6 +337,7 @@ async fn list_events(
     calendar_id: &str,
     from: DateTime<Local>,
     to: DateTime<Local>,
+    query: Option<&str>,
 ) -> Result<Vec<Event>> {
     let mut url = Url::parse(API).expect("valid URL");
     // Calendar IDs contain characters like '#' that must be escaped in a URL path.
@@ -322,6 +349,9 @@ async fn list_events(
         .append_pair("singleEvents", "true")
         .append_pair("orderBy", "startTime")
         .append_pair("maxResults", "250");
+    if let Some(q) = query {
+        url.query_pairs_mut().append_pair("q", q);
+    }
     get_all_pages(http, token, url).await
 }
 

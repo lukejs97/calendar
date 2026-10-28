@@ -2,6 +2,7 @@ mod agenda;
 mod cache;
 mod error;
 mod google;
+mod search;
 mod secrets;
 mod todoist;
 
@@ -101,6 +102,16 @@ async fn saved_agenda(
     let accounts = state.google_auth.accounts().await.unwrap_or_default();
     items.retain(|item| item.account.as_ref().is_none_or(|a| accounts.contains(a)));
     Ok(Some(Agenda { accounts, items, warnings: Vec::new(), offline_since: Some(saved_at), loaded: Vec::new() }))
+}
+
+/// Events and tasks from a year back to a year ahead matching `query`.
+#[tauri::command]
+async fn search(
+    state: State<'_, AppState>,
+    cache: State<'_, AgendaCache>,
+    query: String,
+) -> Result<search::SearchResults> {
+    search::search(&state.http, &state.google_auth, &cache, &query).await
 }
 
 #[derive(Serialize)]
@@ -233,6 +244,7 @@ pub fn run() {
             remove_google_account,
             get_agenda,
             get_saved_agenda,
+            search,
             event_calendars,
             create_event,
             move_event,
