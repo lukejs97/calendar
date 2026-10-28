@@ -174,9 +174,11 @@ export function install(): void {
           ...sampleItems(range.from, range.to),
           ...created.filter((item) => overlaps(item, range.from, range.to)),
         ].filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true));
-        const agenda: Agenda = { accounts, items, warnings: [] };
+        const agenda: Agenda = { accounts, items, warnings: [], offlineSince: null };
         return agenda;
       }
+      case "get_saved_agenda":
+        return null;
       case "event_calendars":
         return accounts.map((email, i) => ({
           email,

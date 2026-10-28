@@ -57,6 +57,8 @@ export interface Agenda {
   accounts: string[];
   items: AgendaItem[];
   warnings: string[];
+  /** Set when there's no internet and these are saved items: when they were fetched. */
+  offlineSince: string | null;
 }
 
 /** A calendar you can add events to. Mirrors `EventCalendar` in google/calendar.rs. */
@@ -115,6 +117,8 @@ export const moveEvent = (item: AgendaItem, start: string, end: string, timeZone
   });
 /** Items from local date `from` up to (not including) `to`, both "YYYY-MM-DD". */
 export const getAgenda = (from: string, to: string) => invoke<Agenda>("get_agenda", { from, to });
+/** What was saved last time for that range, without the network; null if nothing. */
+export const getSavedAgenda = (from: string, to: string) => invoke<Agenda | null>("get_saved_agenda", { from, to });
 
 export const todoistStatus = () => invoke<boolean>("todoist_status");
 export const todoistConnect = (token: string) => invoke<void>("todoist_connect", { token });

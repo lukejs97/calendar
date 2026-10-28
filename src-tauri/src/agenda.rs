@@ -102,6 +102,12 @@ pub struct Agenda {
     pub accounts: Vec<String>,
     pub items: Vec<AgendaItem>,
     pub warnings: Vec<String>,
+    /// Set when there's no internet and these are saved items: when they
+    /// were fetched (RFC 3339).
+    pub offline_since: Option<String>,
+    /// The sources that loaded (account emails, "todoist"), for the cache.
+    #[serde(skip)]
+    pub loaded: Vec<String>,
 }
 
 /// Longest range one request may cover. A year view needs 366 days.
@@ -149,6 +155,7 @@ pub async fn load(
     // its events once.
     let mut seen = HashSet::new();
     let mut signed_in = Vec::new();
+    let mut loaded = Vec::new();
     let mut loaded_any = false;
     let mut first_error = None;
     for (email, result) in accounts.into_iter().zip(google) {
@@ -156,6 +163,7 @@ pub async fn load(
             Ok(events) => {
                 items.extend(events.items.into_iter().filter(|item| seen.insert(item.id.clone())));
                 warnings.extend(events.warnings);
+                loaded.push(email.clone());
                 signed_in.push(email);
                 loaded_any = true;
             }
@@ -177,28 +185,42 @@ pub async fn load(
     }
 
     match tasks {
-        Some(Ok(tasks)) => items.extend(tasks),
+        Some(Ok(tasks)) => {
+            items.extend(tasks);
+            loaded.push("todoist".into());
+        }
         // A Todoist problem shouldn't hide your calendar; show it as a warning.
         Some(Err(e)) => warnings.push(format!("Todoist: {e}")),
         None => {}
     }
 
     items.sort_by_cached_key(|item| (start_timestamp(item), !item.all_day, item.title.clone()));
-    Ok(Agenda { accounts: signed_in, items, warnings })
+    Ok(Agenda { accounts: signed_in, items, warnings, offline_since: None, loaded })
 }
 
 /// Start time as a Unix timestamp; all-day items count as starting at local
 /// midnight, and sort before timed items that start at the same moment.
 fn start_timestamp(item: &AgendaItem) -> i64 {
-    let parsed = if item.all_day {
-        NaiveDate::parse_from_str(&item.start, "%Y-%m-%d").ok().map(|d| local_midnight(d).timestamp())
-    } else {
-        DateTime::parse_from_rfc3339(&item.start).ok().map(|d| d.timestamp())
-    };
-    parsed.unwrap_or(i64::MAX)
+    parse_timestamp(&item.start, item.all_day).unwrap_or(i64::MAX)
 }
 
-fn local_midnight(date: NaiveDate) -> DateTime<Local> {
+/// When an item starts and ends, as Unix timestamps. An item without an end
+/// (or ending as it starts) counts as lasting one second.
+pub fn item_span(item: &AgendaItem) -> (i64, i64) {
+    let start = start_timestamp(item);
+    let end = item.end.as_deref().and_then(|end| parse_timestamp(end, item.all_day)).unwrap_or(start);
+    (start, end.max(start.saturating_add(1)))
+}
+
+fn parse_timestamp(s: &str, all_day: bool) -> Option<i64> {
+    if all_day {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| local_midnight(d).timestamp())
+    } else {
+        DateTime::parse_from_rfc3339(s).ok().map(|d| d.timestamp())
+    }
+}
+
+pub fn local_midnight(date: NaiveDate) -> DateTime<Local> {
     let midnight = date.and_hms_opt(0, 0, 0).expect("midnight is valid");
     // `earliest` handles the rare zones where a DST change skips/repeats midnight.
     midnight

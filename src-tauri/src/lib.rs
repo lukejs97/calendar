@@ -1,4 +1,5 @@
 mod agenda;
+mod cache;
 mod error;
 mod google;
 mod secrets;
@@ -9,9 +10,10 @@ use std::time::Duration;
 use chrono::NaiveDate;
 use futures::future::join_all;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use agenda::Agenda;
+use cache::AgendaCache;
 use error::{AppError, Result};
 use google::auth::GoogleAuth;
 use google::calendar::{EventCalendar, NewEvent};
@@ -42,14 +44,63 @@ async fn google_accounts(state: State<'_, AppState>) -> Result<Vec<String>> {
 }
 
 #[tauri::command]
-async fn remove_google_account(state: State<'_, AppState>, email: String) -> Result<()> {
-    state.google_auth.remove_account(&email).await
+async fn remove_google_account(
+    state: State<'_, AppState>,
+    cache: State<'_, AgendaCache>,
+    email: String,
+) -> Result<()> {
+    state.google_auth.remove_account(&email).await?;
+    cache.forget(&email);
+    Ok(())
 }
 
 /// `from` and `to` are local dates as "YYYY-MM-DD"; `to` is exclusive.
+/// Without internet, falls back to the items saved last time (see cache.rs).
 #[tauri::command]
-async fn get_agenda(state: State<'_, AppState>, from: String, to: String) -> Result<Agenda> {
-    agenda::load(&state.http, &state.google_auth, parse_date(&from)?, parse_date(&to)?).await
+async fn get_agenda(
+    state: State<'_, AppState>,
+    cache: State<'_, AgendaCache>,
+    from: String,
+    to: String,
+) -> Result<Agenda> {
+    let (from, to) = (parse_date(&from)?, parse_date(&to)?);
+    match agenda::load(&state.http, &state.google_auth, from, to).await {
+        Ok(agenda) => {
+            cache.store(from, to, &agenda.loaded, &agenda.items);
+            Ok(agenda)
+        }
+        // No internet (or Google unreachable): show what was saved.
+        Err(e @ AppError::Http(_)) => saved_agenda(&state, &cache, from, to).await?.ok_or(e),
+        Err(e) => Err(e),
+    }
+}
+
+/// The items saved last time, straight away and without the network, so the
+/// app can show something while it fetches. `None` if nothing is saved.
+#[tauri::command]
+async fn get_saved_agenda(
+    state: State<'_, AppState>,
+    cache: State<'_, AgendaCache>,
+    from: String,
+    to: String,
+) -> Result<Option<Agenda>> {
+    let agenda = saved_agenda(&state, &cache, parse_date(&from)?, parse_date(&to)?).await?;
+    Ok(agenda.map(|agenda| Agenda { offline_since: None, ..agenda }))
+}
+
+async fn saved_agenda(
+    state: &AppState,
+    cache: &AgendaCache,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Option<Agenda>> {
+    let Some((mut items, saved_at)) = cache.between(from, to) else {
+        return Ok(None);
+    };
+    // Only accounts still signed in, in case one was removed meanwhile.
+    let accounts = state.google_auth.accounts().await.unwrap_or_default();
+    items.retain(|item| item.account.as_ref().is_none_or(|a| accounts.contains(a)));
+    Ok(Some(Agenda { accounts, items, warnings: Vec::new(), offline_since: Some(saved_at), loaded: Vec::new() }))
 }
 
 #[derive(Serialize)]
@@ -137,8 +188,10 @@ async fn todoist_connect(state: State<'_, AppState>, token: String) -> Result<()
 }
 
 #[tauri::command]
-fn todoist_disconnect() -> Result<()> {
-    secrets::delete(secrets::TODOIST_TOKEN)
+fn todoist_disconnect(cache: State<'_, AgendaCache>) -> Result<()> {
+    secrets::delete(secrets::TODOIST_TOKEN)?;
+    cache.forget("todoist");
+    Ok(())
 }
 
 /// `id` is the task's `AgendaItem` id ("todoist:…").
@@ -161,23 +214,17 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_notification::init());
 
-    // iOS: Google's sign-in redirect comes back as a deep link (a custom URL
-    // scheme that opens this app); pass it to the waiting sign-in.
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_deep_link::init()).setup(|app| {
-        use tauri::Manager;
-        use tauri_plugin_deep_link::DeepLinkExt;
-        let handle = app.handle().clone();
-        app.deep_link().on_open_url(move |event| {
-            let state = handle.state::<AppState>();
-            for url in event.urls() {
-                state.google_auth.handle_redirect_url(&url);
-            }
-        });
-        Ok(())
-    });
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
 
     builder
+        .setup(|app| {
+            let path = app.path().app_cache_dir().ok().map(|dir| dir.join("agenda.json"));
+            app.manage(AgendaCache::load(path));
+            #[cfg(mobile)]
+            listen_for_sign_in_redirects(app);
+            Ok(())
+        })
         .manage(AppState { google_auth: GoogleAuth::new(http.clone()), http })
         .invoke_handler(tauri::generate_handler![
             auth_status,
@@ -185,6 +232,7 @@ pub fn run() {
             google_accounts,
             remove_google_account,
             get_agenda,
+            get_saved_agenda,
             event_calendars,
             create_event,
             move_event,
@@ -195,4 +243,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// iOS: Google's sign-in redirect comes back as a deep link (a custom URL
+/// scheme that opens this app); pass it to the waiting sign-in.
+#[cfg(mobile)]
+fn listen_for_sign_in_redirects(app: &tauri::App) {
+    use tauri_plugin_deep_link::DeepLinkExt;
+    let handle = app.handle().clone();
+    app.deep_link().on_open_url(move |event| {
+        let state = handle.state::<AppState>();
+        for url in event.urls() {
+            state.google_auth.handle_redirect_url(&url);
+        }
+    });
 }

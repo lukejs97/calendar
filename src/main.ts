@@ -3,6 +3,7 @@ import {
   authStatus,
   errorMessage,
   getAgenda,
+  getSavedAgenda,
   isNotSignedIn,
   moveEvent as saveEventTimes,
   setTaskCompleted,
@@ -15,7 +16,7 @@ import { openDetails } from "./details";
 import { el } from "./dom";
 import { openQuickAdd } from "./quick-add";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
-import { localTimeZone, overlaps, startOfDay, toDateString, toLocalIso } from "./time";
+import { localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -87,6 +88,7 @@ function render(agenda: Agenda): void {
   reveal = undefined;
   account.textContent = agenda.accounts.join(", ");
   banner.replaceChildren(...agenda.warnings.map((w) => el("p", "warning", `Couldn't load ${w}`)));
+  if (agenda.offlineSince) banner.prepend(el("p", "warning", offlineNote(agenda.offlineSince)));
   VIEWS[state.view].render(app, {
     items: itemsToShow(agenda, from, to),
     from,
@@ -164,16 +166,42 @@ function updateToolbar(): void {
   }
 }
 
-/** Shows the current view: from the cache right away if possible, then fresh from Google. */
+/** "No internet. Showing events saved at 3:42 PM." */
+function offlineNote(savedAt: string): string {
+  const saved = new Date(savedAt);
+  const when = Number.isNaN(saved.getTime())
+    ? ""
+    : startOfDay(saved).getTime() === startOfDay(new Date()).getTime()
+      ? ` at ${timeFormat.format(saved)}`
+      : ` on ${saved.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${timeFormat.format(saved)}`;
+  return `No internet. Showing events saved${when}.`;
+}
+
+/**
+ * Shows the current view right away (from memory, or else from what was
+ * saved on disk last time), then fresh from Google and Todoist.
+ */
 async function load(): Promise<void> {
   const { from, to, key } = currentRange();
   updateToolbar();
 
-  const cached = cache.get(key);
-  if (cached) render(cached);
-  else app.classList.add("loading");
-
   const request = ++latestRequest;
+  let cached = cache.get(key);
+  if (cached) render(cached);
+  else {
+    app.classList.add("loading");
+    void getSavedAgenda(toDateString(from), toDateString(to))
+      .then((saved) => {
+        // Only if the fresh answer hasn't arrived first.
+        if (saved && request === latestRequest && !cache.has(key)) {
+          cached = saved;
+          render(saved);
+          app.classList.remove("loading");
+        }
+      })
+      .catch(() => {});
+  }
+
   refreshButton.disabled = true;
   try {
     const agenda = await getAgenda(toDateString(from), toDateString(to));
