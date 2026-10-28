@@ -341,6 +341,7 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
     const gutter = parseFloat(getComputedStyle(timeline).getPropertyValue("--gutter")) || 56;
     column = Math.max(1, (scroller.clientWidth - gutter) / visible);
     timeline.style.setProperty("--column", `${column}px`);
+    timeline.classList.toggle("narrow", column < 80);
     scroller.scrollLeft = first * column;
   };
   size();

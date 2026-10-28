@@ -11,7 +11,8 @@
 │            year.ts, agenda.ts                       │
 │ time.ts    date helpers shared by all views         │
 │ api.ts     typed invoke() wrappers                  │
-│ settings.ts Google accounts and Todoist dialogs     │
+│ settings.ts Settings, Google accounts, Todoist      │
+│ preferences.ts settings kept on this device         │
 │ event-form.ts New/Edit event or task form;          │
 │            quick-parse.ts reads the sentence        │
 │ details.ts event/task details, Edit and Delete      │
@@ -70,6 +71,10 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `RunEvent::Reopen` (Dock click) shows it again.
 - `sync.ts`: each window emits `agenda-changed` after a change, and the
   other reloads.
+
+The multi-day view ("3 Days", `days` in `views/index.ts`) works the same
+way with fewer columns across: `multiDayCount()` from `preferences.ts`, set
+in Settings (`settings.ts`) and kept in local storage per device.
 
 Week view slides: it draws six weeks (`WEEK_DRAWN_DAYS`) with columns a
 seventh of the width, in one box that scrolls both ways (headers and hours

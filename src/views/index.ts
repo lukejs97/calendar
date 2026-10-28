@@ -1,5 +1,6 @@
 // Each view says which dates it shows, how Previous/Next move, what the title
 // is, and how to draw itself.
+import { multiDayCount } from "../preferences";
 import { addDays, addMonths, isSameDay, startOfWeek } from "../time";
 import { renderAgenda } from "./agenda";
 import { renderMonth } from "./month";
@@ -11,7 +12,7 @@ export type { ViewContext, ViewName } from "./types";
 export { slideTimeline } from "./timeline";
 
 interface ViewSpec {
-  label: string;
+  label: string | (() => string);
   /** Keyboard shortcut. */
   key: string;
   range(anchor: Date): { from: Date; to: Date };
@@ -34,7 +35,25 @@ const rangeTitle = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 
 const daysFrom = (from: Date, count: number) => Array.from({ length: count }, (_, i) => addDays(from, i));
 
-export const VIEW_ORDER: ViewName[] = ["day", "week", "month", "year", "agenda"];
+export const VIEW_ORDER: ViewName[] = ["day", "days", "week", "month", "year", "agenda"];
+
+/** The days drawn by the views that slide sideways (week, multi-day): six weeks. */
+const slidingRange = (anchor: Date) => {
+  const from = addDays(startOfWeek(anchor), -2 * 7);
+  return { from, to: addDays(from, WEEK_DRAWN_DAYS) };
+};
+
+/** Views whose days slide sideways, and how many of them are shown at once. */
+export function slidingDays(view: ViewName): number | null {
+  if (view === "week") return 7;
+  if (view === "days") return multiDayCount();
+  return null;
+}
+
+export const viewLabel = (view: ViewName) => {
+  const { label } = VIEWS[view];
+  return typeof label === "string" ? label : label();
+};
 
 export const VIEWS: Record<ViewName, ViewSpec> = {
   day: {
@@ -45,15 +64,24 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
     title: (anchor) => dayTitle.format(anchor),
     render: (root, ctx) => renderTimeline(root, ctx, [ctx.from]),
   },
+  // A few days at a time (Settings says how many), sliding like the week.
+  days: {
+    label: () => `${multiDayCount()} Days`,
+    key: "x",
+    range: slidingRange,
+    step: (anchor, dir) => addDays(anchor, multiDayCount() * dir),
+    title: (anchor) => {
+      const last = addDays(anchor, multiDayCount() - 1);
+      return rangeTitle.formatRange(anchor, last);
+    },
+    render: (root, ctx) => renderTimeline(root, ctx, daysFrom(ctx.from, WEEK_DRAWN_DAYS), multiDayCount()),
+  },
   week: {
     label: "Week",
     key: "w",
     // The anchor is the first day shown; it's a week's first day until the
     // days are slid. Six weeks around it are drawn, to slide through.
-    range: (anchor) => {
-      const from = addDays(startOfWeek(anchor), -2 * 7);
-      return { from, to: addDays(from, WEEK_DRAWN_DAYS) };
-    },
+    range: slidingRange,
     step: (anchor, dir) => {
       const weekStart = startOfWeek(anchor);
       // From part way through a week: back to its start, or on to the next.

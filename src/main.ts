@@ -21,8 +21,9 @@ import { el } from "./dom";
 import { openEdit, openNew } from "./event-form";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
-import { openAccountsSettings, openTodoistSettings } from "./settings";
+import { openSettings } from "./settings";
 import {
+  addDays,
   itemEnd,
   itemStart,
   localTimeZone,
@@ -33,7 +34,7 @@ import {
   toDateString,
   toLocalIso,
 } from "./time";
-import { slideTimeline, VIEW_ORDER, VIEWS, type ViewName } from "./views";
+import { slideTimeline, slidingDays, VIEW_ORDER, viewLabel, VIEWS, type ViewName } from "./views";
 
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
 const CACHE_LIMIT = 24;
@@ -49,7 +50,7 @@ const viewSwitcher = document.querySelector<HTMLElement>("#view-switcher")!;
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!;
 
 const firstView = savedView();
-const state = { view: firstView, anchor: firstView === "week" ? startOfWeek(new Date()) : startOfDay(new Date()) };
+const state = { view: firstView, anchor: firstDay(firstView, new Date()) };
 
 /** Recently loaded ranges, so going back and forth shows something instantly. */
 const cache = new Map<string, Agenda>();
@@ -69,8 +70,8 @@ function savedView(): ViewName {
   } catch {
     // Storage unavailable; use the default.
   }
-  // A whole week is cramped on a phone; start with the list there.
-  return window.matchMedia("(max-width: 640px)").matches ? "agenda" : "week";
+  // A whole week is cramped on a phone; start with a few days there.
+  return window.matchMedia("(max-width: 640px)").matches ? "days" : "week";
 }
 
 function saveView(view: ViewName): void {
@@ -113,7 +114,7 @@ function render(agenda: Agenda): void {
     anchor: state.anchor,
     now: new Date(),
     // Week view keeps its place in the day when drawing more weeks to slide to.
-    preserveScroll: shown?.view === state.view && (shown.range === key || state.view === "week"),
+    preserveScroll: shown?.view === state.view && (shown.range === key || slidingDays(state.view) !== null),
     reveal: revealNow,
     goTo,
     toggleTask,
@@ -225,7 +226,7 @@ async function load(): Promise<void> {
   const request = ++latestRequest;
   let cached = cache.get(key);
   if (cached) render(cached);
-  else if (shown?.view === "week" && state.view === "week") {
+  else if (shown?.view === state.view && slidingDays(state.view) !== null) {
     // Slid on to new weeks: most of what's needed is already on screen.
     render(shown.agenda);
   } else {
@@ -267,8 +268,7 @@ async function load(): Promise<void> {
 
 function goTo(view: ViewName, date: Date): void {
   state.view = view;
-  // A week is shown from its first day (until slid).
-  state.anchor = view === "week" ? startOfWeek(date) : startOfDay(date);
+  state.anchor = firstDay(view, date);
   saveView(view);
   void load();
 }
@@ -279,8 +279,30 @@ function step(direction: 1 | -1): void {
 
 /** Goes to `date` in the current view; in week view by sliding there, if it's near. */
 function showDate(date: Date): void {
-  if (state.view === "week" && slideTimeline(app, startOfWeek(date))) return;
+  const visible = slidingDays(state.view);
+  if (visible !== null && slideTimeline(app, firstDay(state.view, date), visible)) return;
   goTo(state.view, date);
+}
+
+/**
+ * Changes view, keeping to the same dates. The multi-day view starts today
+ * if the view it came from showed today.
+ */
+function switchView(view: ViewName): void {
+  const today = startOfDay(new Date());
+  const anchor = state.anchor;
+  const showsToday =
+    state.view === "year"
+      ? anchor.getFullYear() === today.getFullYear()
+      : state.view === "month"
+        ? anchor.getFullYear() === today.getFullYear() && anchor.getMonth() === today.getMonth()
+        : today >= startOfDay(anchor) && today < addDays(startOfDay(anchor), slidingDays(state.view) ?? 1);
+  goTo(view, view === "days" && showsToday ? today : anchor);
+}
+
+/** The first day `view` shows to show `date`: a week from its start (until slid). */
+function firstDay(view: ViewName, date: Date): Date {
+  return view === "week" ? startOfWeek(date) : startOfDay(date);
 }
 
 function showCalendar(): void {
@@ -358,15 +380,23 @@ function searchEvents(): void {
   });
 }
 
+/** The view buttons' names ("3 Days" changes with Settings). */
+function labelViews(): void {
+  for (const button of viewSwitcher.querySelectorAll<HTMLButtonElement>("button")) {
+    const name = button.dataset.view as ViewName;
+    button.textContent = viewLabel(name);
+    button.title = `${viewLabel(name)} (${VIEWS[name].key.toUpperCase()})`;
+  }
+}
+
 function setUpControls(): void {
   for (const name of VIEW_ORDER) {
-    const spec = VIEWS[name];
-    const button = el("button", undefined, spec.label);
+    const button = el("button");
     button.dataset.view = name;
-    button.title = `${spec.label} (${spec.key.toUpperCase()})`;
-    button.addEventListener("click", () => goTo(name, state.anchor));
+    button.addEventListener("click", () => switchView(name));
     viewSwitcher.append(button);
   }
+  labelViews();
 
   document.querySelector("#today")!.addEventListener("click", () => showDate(new Date()));
   document.querySelector("#prev")!.addEventListener("click", () => step(-1));
@@ -374,17 +404,21 @@ function setUpControls(): void {
   refreshButton.addEventListener("click", load);
   document.querySelector("#new-event")!.addEventListener("click", newEvent);
   document.querySelector("#search")!.addEventListener("click", searchEvents);
-  document.querySelector("#todoist")!.addEventListener("click", () =>
-    openTodoistSettings(() => {
-      cache.clear();
-      void load();
-    }),
-  );
-  document.querySelector("#accounts")!.addEventListener("click", () =>
-    openAccountsSettings((signedIn) => {
-      if (!signedIn) return showSignedOut();
-      cache.clear();
-      void load();
+  document.querySelector("#settings")!.addEventListener("click", () =>
+    openSettings({
+      accountsChanged: (signedIn) => {
+        if (!signedIn) return showSignedOut();
+        cache.clear();
+        void load();
+      },
+      todoistChanged: () => {
+        cache.clear();
+        void load();
+      },
+      daysChanged: () => {
+        labelViews();
+        if (state.view === "days") void load();
+      },
     }),
   );
 
@@ -400,10 +434,11 @@ function setUpControls(): void {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     const key = e.key.toLowerCase();
     const view = VIEW_ORDER.find((name) => VIEWS[name].key === key);
-    if (view) goTo(view, state.anchor);
+    if (view) switchView(view);
     else if (key === "t") showDate(new Date());
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
+    else if (key === ",") document.querySelector<HTMLButtonElement>("#settings")!.click();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;
@@ -420,7 +455,7 @@ function setUpControls(): void {
     "wheel",
     (e) => {
       // Week view slides through the days itself.
-      if (state.view === "week" || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      if (slidingDays(state.view) !== null || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       window.clearTimeout(swipeEnded);
       swipeEnded = window.setTimeout(() => {
@@ -443,7 +478,7 @@ function setUpControls(): void {
     "touchstart",
     (e) => {
       const touch = e.touches[0];
-      swipe = e.touches.length === 1 && state.view !== "week" ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : undefined;
+      swipe = e.touches.length === 1 && slidingDays(state.view) === null ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : undefined;
     },
     { passive: true },
   );

@@ -1,6 +1,6 @@
 import type { AgendaItem } from "../api";
 
-export type ViewName = "day" | "week" | "month" | "year" | "agenda";
+export type ViewName = "day" | "days" | "week" | "month" | "year" | "agenda";
 
 /** Everything a view needs to draw itself. */
 export interface ViewContext {

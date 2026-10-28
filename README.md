@@ -7,9 +7,10 @@ version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
 
 ## Features
 
-- **Views:** Day, Week, Month, Year and Agenda, for all your Google accounts'
-  calendars together. Week view slides through the days with two fingers on a
-  trackpad, as in Apple's Calendar.
+- **Views:** Day, a few days (3 unless you change it in Settings), Week,
+  Month, Year and Agenda, for all your Google accounts' calendars together.
+  The multi-day and week views slide through the days (two fingers on a
+  trackpad, or a finger on a phone), as in Apple's Calendar.
 - **Add in a sentence:** click **+** (or press `N`) and type something like
   "Lunch with Sam tomorrow 1pm at Cafe Roma", "Standup every weekday at 9:30
   with ana@example.com" or "Conference Nov 12-14 in Berlin, remind me 1 day
@@ -36,15 +37,17 @@ version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
   the window closed.
 - **Offline:** opens straight away with what it last loaded, and shows (and
   searches) it without internet.
-- **Several Google accounts:** **Accounts** → **Add account**. While the
+- **Settings** (the gear, or `,`): Google accounts, Todoist, and how many days
+  the multi-day view shows (2 to 7; each device remembers its own).
+- **Several Google accounts:** Settings → Google accounts → **Add account**. While the
   Google project is in **Testing**, add the extra account as a test user first
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).
-- **Todoist** (optional): **Todoist** in the top bar, then paste your API token
+- **Todoist** (optional): Settings → Todoist, then paste your API token
   from Todoist → Settings → Integrations → Developer. Tasks with a due date
   appear with a checkbox in every view, overdue ones on today.
 
-**Keyboard:** `D` `W` `M` `Y` `A` switch views, `T` jumps to today, `N` adds
-an event or task, `/` searches, `←` `→` go back and forward (or swipe sideways
+**Keyboard:** `D` `X` `W` `M` `Y` `A` switch views (`X` is the multi-day one), `T` jumps to today, `N` adds
+an event or task, `/` searches, `,` opens Settings, `←` `→` go back and forward (or swipe sideways
 with two fingers). Click a date in the week header, month grid or year view to
 open that day.
 
@@ -107,7 +110,7 @@ for the menu bar window. How the code is organized:
   macOS it's Keychain Access. (Older versions used `google-refresh-token`; the
   app moves it over the first time it runs.)
 - **Access tokens:** in memory only.
-- **Removing an account** (Accounts → Remove) deletes its token from the
+- **Removing an account** (Settings → Google accounts → Remove) deletes its token from the
   keychain and asks Google to revoke it.
 - These names (`com.mycalendar.app`, `com.lukesassa.calendar`) are from before
   the app was called Minuteman. They stay as they are on purpose: changing
