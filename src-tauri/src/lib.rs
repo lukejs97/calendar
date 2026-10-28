@@ -158,6 +158,8 @@ pub fn run() {
         .expect("failed to build HTTP client");
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_notification::init());
 
     // iOS: Google's sign-in redirect comes back as a deep link (a custom URL
     // scheme that opens this app); pass it to the waiting sign-in.

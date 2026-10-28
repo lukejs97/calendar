@@ -10,6 +10,7 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
+import { refreshAlerts, startAlerts, stopAlerts } from "./alerts";
 import { openDetails } from "./details";
 import { el } from "./dom";
 import { openQuickAdd } from "./quick-add";
@@ -147,6 +148,7 @@ async function moveEvent(item: AgendaItem, start: Date, end: Date): Promise<void
   replaceShown({ ...item, start: toLocalIso(start), end: toLocalIso(end) });
   try {
     await saveEventTimes(item, toLocalIso(start), toLocalIso(end), localTimeZone());
+    refreshAlerts();
     // Other cached ranges may show it too; fetch them fresh when visited.
     for (const key of cache.keys()) if (key !== shown?.range) cache.delete(key);
   } catch (e) {
@@ -213,10 +215,12 @@ function showCalendar(): void {
   void load();
   window.clearInterval(refreshTimer);
   refreshTimer = window.setInterval(load, REFRESH_EVERY_MS);
+  void startAlerts();
 }
 
 function showSignedOut(error?: string): void {
   window.clearInterval(refreshTimer);
+  stopAlerts();
   latestRequest++; // ignore any request still in flight
   cache.clear();
   toggledTasks.clear();
@@ -251,6 +255,7 @@ function showSignedOut(error?: string): void {
 function newEvent(): void {
   openQuickAdd((start, allDay) => {
     cache.clear();
+    refreshAlerts();
     if (!allDay) reveal = start;
     goTo(state.view, start);
   });

@@ -36,6 +36,11 @@ url = "2"
 chrono = "0.4"
 thiserror = "2"
 
+# Desktop: pop-up alerts before events. (Not on iPhone, where they'd need to
+# be scheduled ahead with iOS instead.)
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+tauri-plugin-notification = "2"
+
 # iOS (and later Android): receives Google's sign-in redirect as a deep link.
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 tauri-plugin-deep-link = "2"
