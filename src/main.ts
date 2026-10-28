@@ -256,7 +256,7 @@ function showSignedOut(error?: string): void {
   shown = undefined;
   actions.hidden = true;
   toolbar.hidden = true;
-  title.textContent = "Calendar";
+  title.textContent = "Minuteman";
   account.textContent = "";
   banner.replaceChildren();
   app.classList.remove("loading");

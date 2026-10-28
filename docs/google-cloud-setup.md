@@ -41,7 +41,8 @@ console this section is called **Google Auth Platform**.
 
 1. Open <https://console.cloud.google.com/auth/overview> and click **Get started**.
 2. **App information**
-   - App name: `Calendar`. Google rejects names that contain "Google".
+   - App name: `Minuteman` (it's what Google's sign-in page shows). Google
+     rejects names that contain "Google".
    - User support email: your email.
 3. **Audience**: choose **External**.
    ("Internal" only exists for Google Workspace organizations and only allows
@@ -145,7 +146,7 @@ says verification is needed, you can ignore it.
 1. Click **Sign in with Google**. Your browser opens Google's sign-in page.
 2. Pick your account. Because the app is unverified, Google shows
    **"Google hasn't verified this app"**. In production, click **Advanced**, then
-   **Go to Calendar (unsafe)**. In Testing, just click **Continue**. It's your
+   **Go to Minuteman (unsafe)** (or whatever app name you set on Branding). In Testing, just click **Continue**. It's your
    own app, so this is expected.
 3. Tick the box to let the app see your calendars, and click **Continue**.
 4. The browser tab says "You're signed in". Close it. The app shows your agenda.

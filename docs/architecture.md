@@ -143,9 +143,13 @@ editing titles or deleting events.
   `ios/` images generated from `icon-ios.svg` into
   `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` (iOS icons must
   not have transparency).
-- **Name:** update `productName` and the window `title` in
-  `src-tauri/tauri.conf.json`. Changing `identifier` would also move the
-  keychain entry (`SERVICE` in `secrets.rs`), so you'd sign in again once.
+- **Name (done): Minuteman.** It's `productName` and the window `title` in
+  `src-tauri/tauri.conf.json`, the page title and heading in `index.html`
+  and `main.ts`, the sign-in page in `google/loopback.rs`, and
+  `PRODUCT_NAME` in the iOS project (`gen/apple/project.yml` and
+  `project.pbxproj`). The `identifier` stays `com.lukesassa.calendar`:
+  changing it would move the app's data folder and keychain access, so
+  you'd sign in again.
 - **Visual design:** colors, fonts and spacing live as CSS variables at the
   top of `src/styles.css` (`--accent`, `--bg`, and so on), with a dark-mode
   block below. Restyling starts there.

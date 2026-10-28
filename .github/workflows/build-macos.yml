@@ -2,7 +2,7 @@
 # (.dmg) to the run, so a Mac can install it without any developer tools.
 #
 # Run it from the repo's Actions tab ("Build macOS app" → "Run workflow"),
-# then download "Calendar-macOS" from the finished run's Artifacts section.
+# then download "Minuteman-macOS" from the finished run's Artifacts section.
 #
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
 # GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, the same values as in src-tauri/.env.
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Calendar-macOS
+          name: Minuteman-macOS
           path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 30

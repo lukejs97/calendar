@@ -64,8 +64,8 @@ async fn handle_request(stream: TcpStream, expected_state: &str) -> Option<Resul
     };
 
     let message = match &result {
-        Ok(_) => "<h2>You're signed in.</h2><p>You can close this tab and return to Calendar.</p>",
-        Err(_) => "<h2>Sign-in didn't complete.</h2><p>Return to Calendar and try again.</p>",
+        Ok(_) => "<h2>You're signed in.</h2><p>You can close this tab and return to Minuteman.</p>",
+        Err(_) => "<h2>Sign-in didn't complete.</h2><p>Return to Minuteman and try again.</p>",
     };
     let _ = respond(&mut stream, "200 OK", message).await;
     Some(result)
@@ -73,7 +73,7 @@ async fn handle_request(stream: TcpStream, expected_state: &str) -> Option<Resul
 
 async fn respond(stream: &mut TcpStream, status: &str, body: &str) -> std::io::Result<()> {
     let html = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Calendar</title></head>\
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Minuteman</title></head>\
          <body style=\"font-family:system-ui,sans-serif;text-align:center;padding-top:4rem\">\
          {body}</body></html>"
     );

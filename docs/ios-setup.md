@@ -32,7 +32,7 @@ The Xcode project Tauri generated (`src-tauri/gen/apple/`) is committed;
 `ios init` only needs re-running after changing the app ID or adding plugins.
 
 **If the URL scheme goes missing from Info.plist** (sign-in opens Google but
-"Open in Calendar" never appears): the deep-link plugin only updates the
+"Open in Minuteman" never appears): the deep-link plugin only updates the
 plist when its build script runs under the Tauri CLI. A plain
 `cargo check --target aarch64-apple-ios-sim` caches a run without the
 config. Fix: `cargo clean -p tauri-plugin-deep-link --target aarch64-apple-ios-sim`
@@ -151,7 +151,7 @@ program ($99/year) removes that limit.
 1. Tap **Sign in with Google**. Safari opens Google's page.
 2. Pick `lukesassa9@gmail.com` (it's a test user of the Google project), tap
    **Continue** on the "hasn't verified this app" screen, allow calendar access.
-3. Safari asks to open "Calendar"; tap **Open**. The agenda should load.
+3. Safari asks to open "Minuteman"; tap **Open**. The agenda should load.
 
 Then connect Todoist (top bar → Todoist) by pasting the API token.
 

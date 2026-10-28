@@ -1,4 +1,4 @@
-# Calendar
+# Minuteman
 
 A free, personal calendar app in the style of Fantastical, built on Google
 Calendar with [Tauri v2](https://tauri.app/) (a Rust core plus a TypeScript web UI).
@@ -88,11 +88,13 @@ GitHub can build the Mac app for you (`.github/workflows/build-macos.yml`):
    `GOOGLE_CLIENT_SECRET` with the values from `src-tauri/.env`.
 2. Actions tab → **Build macOS app** → **Run workflow**. It takes about
    10–15 minutes.
-3. Open the finished run, download **Calendar-macOS** under Artifacts, unzip
-   it, open the `.dmg` and drag Calendar to Applications.
+3. Open the finished run, download **Minuteman-macOS** under Artifacts, unzip
+   it, open the `.dmg` and drag Minuteman to Applications. (Versions before
+   the rename were called Calendar: delete that one from Applications. Your
+   sign-ins carry over, because the app ID didn't change.)
 4. The first time, macOS blocks it because the app isn't notarized (Apple's
    paid check): System Settings → Privacy & Security → **Open Anyway**.
-5. When asked whether Calendar may use its keychain item, choose
+5. When asked whether Minuteman may use its keychain item, choose
    **Always Allow**.
 
 The build runs for Apple Silicon and Intel Macs. Private repos get free monthly

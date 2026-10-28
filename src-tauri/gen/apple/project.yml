@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Calendar
+      PRODUCT_NAME: Minuteman
       PRODUCT_BUNDLE_IDENTIFIER: com.lukesassa.calendar
 targetTemplates:
   app:
