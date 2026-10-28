@@ -7,6 +7,12 @@ It runs on Windows and macOS.
 **Phase 1** (this): sign in with Google, and see all your calendars in Day,
 Week, Month, Year and Agenda views.
 
+**More than one Google account**: click **Accounts** in the top bar, then
+**Add account**, and pick the other account in your browser. Events from all
+accounts appear together. Remove an account from the same dialog. While the
+Google project is in **Testing**, add the extra account as a test user first
+([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).
+
 **Todoist** (optional): click **Todoist** in the top bar and paste your API
 token from Todoist → Settings → Integrations → Developer. Tasks with a due
 date then appear with a checkbox in every view, overdue ones on today. Ticking
@@ -68,11 +74,14 @@ Actions minutes; a Mac build uses a small share of them.
 
 ## Where things are stored
 
-- **Refresh token:** in your OS keychain under the service `com.mycalendar.app`.
-  On Windows that's Credential Manager → Windows Credentials
-  (`google-refresh-token.com.mycalendar.app`). On macOS it's Keychain Access.
-- **Access token:** in memory only.
-- **Sign out** deletes the keychain entry and asks Google to revoke the token.
+- **Refresh tokens:** one per Google account, together in one entry in your OS
+  keychain under the service `com.mycalendar.app`. On Windows that's Credential
+  Manager → Windows Credentials (`google-accounts.com.mycalendar.app`). On
+  macOS it's Keychain Access. (Older versions used `google-refresh-token`; the
+  app moves it over the first time it runs.)
+- **Access tokens:** in memory only.
+- **Removing an account** (Accounts → Remove) deletes its token from the
+  keychain and asks Google to revoke it.
 
 On macOS, unsigned development builds may ask for Keychain access after each
 rebuild. Click "Always Allow".

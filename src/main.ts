@@ -6,12 +6,11 @@ import {
   isNotSignedIn,
   setTaskCompleted,
   signIn,
-  signOut,
   type Agenda,
   type AgendaItem,
 } from "./api";
 import { el } from "./dom";
-import { openTodoistSettings } from "./settings";
+import { openAccountsSettings, openTodoistSettings } from "./settings";
 import { overlaps, startOfDay, toDateString } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
 
@@ -27,7 +26,6 @@ const actions = document.querySelector<HTMLElement>("#actions")!;
 const toolbar = document.querySelector<HTMLElement>("#toolbar")!;
 const viewSwitcher = document.querySelector<HTMLElement>("#view-switcher")!;
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!;
-const signOutButton = document.querySelector<HTMLButtonElement>("#sign-out")!;
 
 const state = { view: savedView(), anchor: startOfDay(new Date()) };
 
@@ -79,7 +77,7 @@ function itemsToShow(agenda: Agenda, from: Date, to: Date): AgendaItem[] {
 
 function render(agenda: Agenda): void {
   const { from, to, key } = currentRange();
-  account.textContent = agenda.account ?? "";
+  account.textContent = agenda.accounts.join(", ");
   banner.replaceChildren(...agenda.warnings.map((w) => el("p", "warning", `Couldn't load ${w}`)));
   VIEWS[state.view].render(app, {
     items: itemsToShow(agenda, from, to),
@@ -231,10 +229,13 @@ function setUpControls(): void {
       void load();
     }),
   );
-  signOutButton.addEventListener("click", async () => {
-    await signOut().catch(() => {});
-    showSignedOut();
-  });
+  document.querySelector("#accounts")!.addEventListener("click", () =>
+    openAccountsSettings((signedIn) => {
+      if (!signedIn) return showSignedOut();
+      cache.clear();
+      void load();
+    }),
+  );
 
   document.addEventListener("keydown", (e) => {
     if (toolbar.hidden || e.ctrlKey || e.metaKey || e.altKey) return;

@@ -27,14 +27,20 @@ fn auth_status(state: State<'_, AppState>) -> Result<bool> {
     state.google_auth.is_signed_in()
 }
 
+/// Adds a Google account (or renews one already added); returns its email.
 #[tauri::command]
-async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<String> {
     state.google_auth.sign_in(&app).await
 }
 
 #[tauri::command]
-async fn sign_out(state: State<'_, AppState>) -> Result<()> {
-    state.google_auth.sign_out().await
+async fn google_accounts(state: State<'_, AppState>) -> Result<Vec<String>> {
+    state.google_auth.accounts().await
+}
+
+#[tauri::command]
+async fn remove_google_account(state: State<'_, AppState>, email: String) -> Result<()> {
+    state.google_auth.remove_account(&email).await
 }
 
 /// `from` and `to` are local dates as "YYYY-MM-DD"; `to` is exclusive.
@@ -108,7 +114,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             auth_status,
             sign_in,
-            sign_out,
+            google_accounts,
+            remove_google_account,
             get_agenda,
             todoist_status,
             todoist_connect,

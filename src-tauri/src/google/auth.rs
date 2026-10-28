@@ -9,21 +9,23 @@
 //!      which iOS hands to the app as a deep link (`handle_redirect_url`).
 //! 3. Swap the code (plus the PKCE verifier) for tokens.
 //!
-//! The long-lived refresh token goes to the OS keychain. The short-lived
-//! access token (about an hour) only ever lives in memory.
+//! Several Google accounts can be signed in at once. Each one's long-lived
+//! refresh token goes to the OS keychain; the short-lived access tokens
+//! (about an hour) only ever live in memory.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 use url::Url;
 
+use super::calendar;
 use crate::error::{AppError, Result};
 use crate::secrets;
 
@@ -135,11 +137,38 @@ impl AccessToken {
     }
 }
 
-/// Owns the Google session: signs in, hands out a valid access token on
-/// request (refreshing it when needed), and signs out.
+/// A signed-in Google account, as saved in the keychain.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Account {
+    email: String,
+    refresh_token: String,
+}
+
+fn read_accounts() -> Result<Vec<Account>> {
+    match secrets::get(secrets::GOOGLE_ACCOUNTS)? {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|e| AppError::Config(format!("the saved Google accounts couldn't be read: {e}"))),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn write_accounts(accounts: &[Account]) -> Result<()> {
+    if accounts.is_empty() {
+        return secrets::delete(secrets::GOOGLE_ACCOUNTS);
+    }
+    secrets::set(secrets::GOOGLE_ACCOUNTS, &serde_json::to_string(accounts).expect("serializable"))
+}
+
+/// Owns the Google sessions: adds accounts, hands out a valid access token
+/// for each on request (refreshing it when needed), and removes them.
 pub struct GoogleAuth {
     http: reqwest::Client,
-    access_token: Mutex<Option<AccessToken>>,
+    /// By account email.
+    access_tokens: Mutex<HashMap<String, AccessToken>>,
+    /// Held while changing the saved account list, so two changes at once
+    /// can't undo each other. Never taken while holding `access_tokens`.
+    store: Mutex<()>,
     /// iOS: while a sign-in is waiting, where to deliver Google's redirect.
     #[cfg(mobile)]
     pending_redirect: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Url>>>,
@@ -149,7 +178,8 @@ impl GoogleAuth {
     pub fn new(http: reqwest::Client) -> Self {
         GoogleAuth {
             http,
-            access_token: Mutex::new(None),
+            access_tokens: Mutex::new(HashMap::new()),
+            store: Mutex::new(()),
             #[cfg(mobile)]
             pending_redirect: std::sync::Mutex::new(None),
         }
@@ -167,48 +197,87 @@ impl GoogleAuth {
         }
     }
 
-    /// True if a refresh token is in the keychain. Doesn't touch the network.
+    /// True if any account is saved in the keychain. Doesn't touch the network.
     pub fn is_signed_in(&self) -> Result<bool> {
-        Ok(secrets::get(secrets::GOOGLE_REFRESH_TOKEN)?.is_some())
+        Ok(!read_accounts()?.is_empty()
+            || secrets::get(secrets::LEGACY_GOOGLE_REFRESH_TOKEN)?.is_some())
     }
 
-    /// Returns an access token to put in API requests, refreshing it first if
-    /// it's missing or about to expire.
-    pub async fn access_token(&self) -> Result<String> {
-        let mut cached = self.access_token.lock().await;
-        if let Some(token) = cached.as_ref()
+    /// The signed-in accounts' email addresses, in the order they were added.
+    pub async fn accounts(&self) -> Result<Vec<String>> {
+        self.migrate_legacy_account().await?;
+        Ok(read_accounts()?.into_iter().map(|account| account.email).collect())
+    }
+
+    /// Returns an access token for `email`'s account to put in API requests,
+    /// refreshing it first if it's missing or about to expire.
+    pub async fn access_token(&self, email: &str) -> Result<String> {
+        let mut cached = self.access_tokens.lock().await;
+        if let Some(token) = cached.get(email)
             && token.expires_at > Instant::now() + EXPIRY_MARGIN
         {
             return Ok(token.value.clone());
         }
 
-        let refresh_token =
-            secrets::get(secrets::GOOGLE_REFRESH_TOKEN)?.ok_or(AppError::NotSignedIn)?;
-        let client = oauth_client()?;
-        let tokens = match self
-            .post_token(
-                &client,
-                &[("refresh_token", refresh_token.as_str()), ("grant_type", "refresh_token")],
-            )
-            .await?
-        {
-            Ok(tokens) => tokens,
-            // The refresh token was revoked or expired (e.g. the app is still in
-            // "Testing" and 7 days passed). Forget it so the UI asks to sign in.
-            Err(e) if e.error == "invalid_grant" => {
-                secrets::delete(secrets::GOOGLE_REFRESH_TOKEN)?;
-                return Err(AppError::NotSignedIn);
+        let account = read_accounts()?
+            .into_iter()
+            .find(|account| account.email == email)
+            .ok_or(AppError::NotSignedIn)?;
+        match self.refresh(&account.refresh_token).await? {
+            Some(tokens) => {
+                let token = AccessToken::from_response(&tokens);
+                let value = token.value.clone();
+                cached.insert(email.to_string(), token);
+                Ok(value)
             }
-            Err(e) => return Err(e.into()),
-        };
-
-        let token = AccessToken::from_response(&tokens);
-        let value = token.value.clone();
-        *cached = Some(token);
-        Ok(value)
+            // Forget the account so the UI asks to add it again.
+            None => {
+                cached.remove(email);
+                drop(cached);
+                self.take_account(email).await?;
+                Err(AppError::NotSignedIn)
+            }
+        }
     }
 
-    pub async fn sign_in(&self, app: &AppHandle) -> Result<()> {
+    /// Trades a refresh token for a new access token. `None` means Google no
+    /// longer accepts the refresh token: it was revoked or expired (e.g. the
+    /// app is still in "Testing" and 7 days passed).
+    async fn refresh(&self, refresh_token: &str) -> Result<Option<TokenResponse>> {
+        let client = oauth_client()?;
+        match self
+            .post_token(&client, &[("refresh_token", refresh_token), ("grant_type", "refresh_token")])
+            .await?
+        {
+            Ok(tokens) => Ok(Some(tokens)),
+            Err(e) if e.error == "invalid_grant" => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Versions that supported only one account kept its refresh token on its
+    /// own. Moves it into the account list as the first account, which needs
+    /// the network once to learn its email address.
+    async fn migrate_legacy_account(&self) -> Result<()> {
+        let _store = self.store.lock().await;
+        let Some(refresh_token) = secrets::get(secrets::LEGACY_GOOGLE_REFRESH_TOKEN)? else {
+            return Ok(());
+        };
+        if let Some(tokens) = self.refresh(&refresh_token).await? {
+            let email = calendar::primary_email(&self.http, &tokens.access_token).await?;
+            let mut accounts = read_accounts()?;
+            if !accounts.iter().any(|account| account.email == email) {
+                accounts.insert(0, Account { email: email.clone(), refresh_token });
+                write_accounts(&accounts)?;
+            }
+            self.access_tokens.lock().await.insert(email, AccessToken::from_response(&tokens));
+        }
+        secrets::delete(secrets::LEGACY_GOOGLE_REFRESH_TOKEN)
+    }
+
+    /// Signs in to a Google account in the browser and adds it (or renews it,
+    /// if it's already added). Returns its email address.
+    pub async fn sign_in(&self, app: &AppHandle) -> Result<String> {
         let client = oauth_client()?;
 
         // PKCE ("pixie"): we keep a random `verifier` and send Google only its
@@ -238,9 +307,11 @@ impl GoogleAuth {
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state)
             // "offline" = also give us a refresh token; "consent" makes Google
-            // return one even if this account approved the app before.
+            // return one even if this account approved the app before;
+            // "select_account" lets you pick which account to add, rather than
+            // Google assuming the one the browser is signed in to.
             .append_pair("access_type", "offline")
-            .append_pair("prompt", "consent");
+            .append_pair("prompt", "select_account consent");
 
         #[cfg(mobile)]
         let redirect = {
@@ -279,10 +350,20 @@ impl GoogleAuth {
 
         let refresh_token = tokens
             .refresh_token
-            .as_deref()
+            .clone()
             .ok_or_else(|| AppError::Auth("Google didn't return a refresh token".into()))?;
-        secrets::set(secrets::GOOGLE_REFRESH_TOKEN, refresh_token)?;
-        *self.access_token.lock().await = Some(AccessToken::from_response(&tokens));
+        let email = calendar::primary_email(&self.http, &tokens.access_token).await?;
+        {
+            let _store = self.store.lock().await;
+            let mut accounts = read_accounts()?;
+            let account = Account { email: email.clone(), refresh_token };
+            match accounts.iter_mut().find(|existing| existing.email == email) {
+                Some(existing) => *existing = account,
+                None => accounts.push(account),
+            }
+            write_accounts(&accounts)?;
+        }
+        self.access_tokens.lock().await.insert(email.clone(), AccessToken::from_response(&tokens));
 
         // The browser has focus now; bring the app back to the front. (On iOS,
         // following the redirect already switched back to the app.)
@@ -291,18 +372,30 @@ impl GoogleAuth {
             let _ = window.unminimize();
             let _ = window.set_focus();
         }
+        Ok(email)
+    }
+
+    /// Signs `email`'s account out of the app.
+    pub async fn remove_account(&self, email: &str) -> Result<()> {
+        self.access_tokens.lock().await.remove(email);
+        if let Some(account) = self.take_account(email).await? {
+            // Ask Google to invalidate the token too. Best effort: still
+            // remove it locally when offline.
+            let _ = self.http.post(REVOKE_URL).form(&[("token", account.refresh_token)]).send().await;
+        }
         Ok(())
     }
 
-    pub async fn sign_out(&self) -> Result<()> {
-        if let Some(refresh_token) = secrets::get(secrets::GOOGLE_REFRESH_TOKEN)? {
-            // Ask Google to invalidate it too. Best effort: still sign out locally
-            // when offline.
-            let _ = self.http.post(REVOKE_URL).form(&[("token", refresh_token)]).send().await;
-        }
-        secrets::delete(secrets::GOOGLE_REFRESH_TOKEN)?;
-        *self.access_token.lock().await = None;
-        Ok(())
+    /// Deletes `email`'s account from the keychain and returns it.
+    async fn take_account(&self, email: &str) -> Result<Option<Account>> {
+        let _store = self.store.lock().await;
+        let mut accounts = read_accounts()?;
+        let Some(index) = accounts.iter().position(|account| account.email == email) else {
+            return Ok(None);
+        };
+        let account = accounts.remove(index);
+        write_accounts(&accounts)?;
+        Ok(Some(account))
     }
 
     /// POSTs to Google's token endpoint, adding the client's ID (and secret,

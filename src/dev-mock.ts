@@ -107,27 +107,33 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
 }
 
 export function install(): void {
-  let signedIn = true;
+  let accounts = ["preview@example.com"];
   let todoistConnected = true;
   const completedTasks = new Set<string>();
 
   mockIPC((cmd, args) => {
     switch (cmd) {
       case "auth_status":
-        return signedIn;
-      case "sign_in":
-        signedIn = true;
+        return accounts.length > 0;
+      case "sign_in": {
+        const email = accounts.length === 0 ? "preview@example.com" : `work${accounts.length}@example.com`;
+        accounts.push(email);
+        return email;
+      }
+      case "google_accounts":
+        return accounts;
+      case "remove_google_account": {
+        const { email } = args as { email: string };
+        accounts = accounts.filter((a) => a !== email);
         return null;
-      case "sign_out":
-        signedIn = false;
-        return null;
+      }
       case "get_agenda": {
         const { from, to } = args as { from: string; to: string };
         // Like the real API: done tasks aren't returned, nor any tasks without Todoist.
         const items = sampleItems(parseDate(from), parseDate(to)).filter((item) =>
           item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true,
         );
-        const agenda: Agenda = { account: "preview@example.com", items, warnings: [] };
+        const agenda: Agenda = { accounts, items, warnings: [] };
         return agenda;
       }
       case "todoist_status":

@@ -28,8 +28,6 @@ struct CalendarListEntry {
     /// The name the user gave a calendar someone else shares with them.
     summary_override: Option<String>,
     background_color: Option<String>,
-    #[serde(default)]
-    primary: bool,
 }
 
 impl CalendarListEntry {
@@ -81,8 +79,6 @@ struct ApiErrorDetail {
 }
 
 pub struct CalendarEvents {
-    /// The primary calendar's ID, which is the account's email address.
-    pub account: Option<String>,
     pub items: Vec<AgendaItem>,
     /// Calendars that failed to load; the rest are still shown.
     pub warnings: Vec<String>,
@@ -96,7 +92,6 @@ pub async fn events_between(
     to: DateTime<Local>,
 ) -> Result<CalendarEvents> {
     let calendars = list_calendars(http, token).await?;
-    let account = calendars.iter().find(|c| c.primary).map(|c| c.id.clone());
 
     // Fetch all calendars at the same time rather than one after another.
     let results =
@@ -110,7 +105,19 @@ pub async fn events_between(
             Err(e) => warnings.push(format!("{}: {e}", calendar.name())),
         }
     }
-    Ok(CalendarEvents { account, items, warnings })
+    Ok(CalendarEvents { items, warnings })
+}
+
+/// The signed-in account's email address, which is its primary calendar's ID.
+pub async fn primary_email(http: &reqwest::Client, token: &str) -> Result<String> {
+    #[derive(Deserialize)]
+    struct Calendar {
+        id: String,
+    }
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", "primary"]);
+    let calendar: Calendar = get_json(http, token, url).await?;
+    Ok(calendar.id)
 }
 
 async fn list_calendars(http: &reqwest::Client, token: &str) -> Result<Vec<CalendarListEntry>> {

@@ -11,7 +11,7 @@
 │            year.ts, agenda.ts                       │
 │ time.ts    date helpers shared by all views         │
 │ api.ts     typed invoke() wrappers                  │
-│ settings.ts Todoist connect/disconnect dialog       │
+│ settings.ts Google accounts and Todoist dialogs     │
 │ dev-mock.ts sample data for `npm run dev` in a      │
 │            browser (dev only)                       │
 └───────────────────────┬─────────────────────────────┘

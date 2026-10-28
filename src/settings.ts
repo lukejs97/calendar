@@ -1,11 +1,100 @@
-// The "Todoist" dialog: connect with a personal API token, or disconnect.
+// The "Google accounts" and "Todoist" dialogs.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { errorMessage, todoistConnect, todoistDisconnect, todoistStatus } from "./api";
+import {
+  errorMessage,
+  googleAccounts,
+  removeGoogleAccount,
+  signIn,
+  todoistConnect,
+  todoistDisconnect,
+  todoistStatus,
+} from "./api";
 import { el } from "./dom";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
-/** Opens the dialog. `onChange` runs after connecting or disconnecting. */
+/**
+ * Opens the Google accounts dialog: add another account, or remove one.
+ * `onChange` runs after either, saying whether any account is left.
+ */
+export async function openAccountsSettings(onChange: (signedIn: boolean) => void): Promise<void> {
+  const dialog = el("dialog", "dialog");
+  dialog.setAttribute("aria-labelledby", "accounts-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+
+  const title = el("h2", undefined, "Google accounts");
+  title.id = "accounts-title";
+  const list = el("ul", "account-list");
+  const error = el("p", "error");
+
+  /** Lists the accounts; resolves to how many there are. */
+  async function showAccounts(): Promise<number> {
+    const accounts = await googleAccounts();
+    list.replaceChildren(
+      ...accounts.map((email) => {
+        const remove = el("button", "text-button danger", "Remove");
+        remove.setAttribute("aria-label", `Remove ${email}`);
+        remove.addEventListener("click", async () => {
+          remove.disabled = true;
+          error.textContent = "";
+          try {
+            await removeGoogleAccount(email);
+            const left = await showAccounts();
+            if (left === 0) dialog.close();
+            onChange(left > 0);
+          } catch (err) {
+            error.textContent = errorMessage(err);
+            remove.disabled = false;
+          }
+        });
+        const row = el("li");
+        row.append(el("span", "account-email", email), remove);
+        return row;
+      }),
+    );
+    return accounts.length;
+  }
+
+  const close = el("button", "text-button", "Close");
+  close.addEventListener("click", () => dialog.close());
+
+  const add = el("button", "primary-button", "Add account");
+  add.addEventListener("click", async () => {
+    add.disabled = true;
+    add.textContent = "Continue in your browser…";
+    error.textContent = "";
+    try {
+      await signIn();
+      await showAccounts();
+      onChange(true);
+    } catch (err) {
+      error.textContent = errorMessage(err);
+    } finally {
+      add.disabled = false;
+      add.textContent = "Add account";
+    }
+  });
+
+  dialog.append(
+    title,
+    el("p", undefined, "Events from all your accounts appear together. To add one, sign in to it in your browser."),
+    list,
+    error,
+    buttonRow(close, add),
+  );
+  dialog.showModal();
+  try {
+    await showAccounts();
+  } catch (err) {
+    error.textContent = errorMessage(err);
+  }
+}
+
+/**
+ * Opens the Todoist dialog: connect with a personal API token, or disconnect.
+ * `onChange` runs after either.
+ */
 export async function openTodoistSettings(onChange: () => void): Promise<void> {
   const dialog = el("dialog", "dialog");
   dialog.setAttribute("aria-labelledby", "todoist-title");

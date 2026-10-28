@@ -106,12 +106,16 @@ this, and Google hasn't explained it yet. The scope list isn't the cause; removi
 Workaround: stay in **Testing** and add yourself as a test user:
 
 1. **Audience → Test users → Add users**, enter your Gmail address, press
-   Enter so it becomes a chip, then **Save**.
+   Enter so it becomes a chip, then **Save**. Add every Google account you'll
+   use in the app (Accounts → Add account); one that isn't listed gets
+   `Error 403: access_denied`.
 2. Use the app normally. About every 7 days Google ends the sign-in, and the app
-   shows "Your Google session ended". Click **Sign in with Google** again.
+   shows "Your Google session ended" (or, for one of several accounts, "Google
+   signed this account out"). Sign in again, or add the account again under
+   **Accounts**.
 
-Try **Publish app** again now and then. Once it works, sign out and back in once
-to get a token without the 7-day limit. Adding an **Application home page** and
+Try **Publish app** again now and then. Once it works, go to **Accounts → Add
+account** and pick each account again, to get tokens without the 7-day limit. Adding an **Application home page** and
 **Privacy policy link** on Branding (on a domain you control) may also unlock
 it, but nobody has confirmed that yet.
 
@@ -143,8 +147,9 @@ says verification is needed, you can ignore it.
 3. Tick the box to let the app see your calendars, and click **Continue**.
 4. The browser tab says "You're signed in". Close it. The app shows your agenda.
 
-If you signed in while the app was still in **Testing**, sign out and sign in
-again after publishing. Otherwise the old token still expires after 7 days.
+If you signed in while the app was still in **Testing**, add each account again
+after publishing (**Accounts → Add account**; picking an account that's already
+there renews it). Otherwise the old token still expires after 7 days.
 
 ## Troubleshooting
 

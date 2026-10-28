@@ -2,7 +2,10 @@
 //! from: Google Calendar events and Todoist tasks. The UI (main window and the
 //! future tray flyout) only ever deals with `AgendaItem`.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Local, NaiveDate};
+use futures::future::join_all;
 use serde::Serialize;
 
 use crate::error::{AppError, Result};
@@ -55,7 +58,8 @@ pub struct AgendaItem {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Agenda {
-    pub account: Option<String>,
+    /// The Google accounts' email addresses.
+    pub accounts: Vec<String>,
     pub items: Vec<AgendaItem>,
     pub warnings: Vec<String>,
 }
@@ -79,12 +83,16 @@ pub async fn load(
     }
 
     let todoist_token = secrets::get(secrets::TODOIST_TOKEN)?;
+    let accounts = google_auth.accounts().await?;
+    if accounts.is_empty() {
+        return Err(AppError::NotSignedIn);
+    }
 
-    // Fetch from Google and Todoist at the same time.
-    let google = async {
-        let token = google_auth.access_token().await?;
+    // Fetch from every Google account and Todoist at the same time.
+    let google = join_all(accounts.iter().map(|email| async move {
+        let token = google_auth.access_token(email).await?;
         google::calendar::events_between(http, &token, local_midnight(from), local_midnight(to)).await
-    };
+    }));
     let tasks = async {
         match &todoist_token {
             Some(token) => Some(todoist::tasks_between(http, token, from, to).await),
@@ -92,10 +100,40 @@ pub async fn load(
         }
     };
     let (google, tasks) = tokio::join!(google, tasks);
-    let google = google?;
 
-    let mut items = google.items;
-    let mut warnings = google.warnings;
+    let mut items = Vec::new();
+    let mut warnings = Vec::new();
+    // A calendar shared between two of your accounts shows up in both; list
+    // its events once.
+    let mut seen = HashSet::new();
+    let mut signed_in = Vec::new();
+    let mut loaded_any = false;
+    let mut first_error = None;
+    for (email, result) in accounts.into_iter().zip(google) {
+        match result {
+            Ok(events) => {
+                items.extend(events.items.into_iter().filter(|item| seen.insert(item.id.clone())));
+                warnings.extend(events.warnings);
+                signed_in.push(email);
+                loaded_any = true;
+            }
+            // Its token stopped working, and it's been removed.
+            Err(AppError::NotSignedIn) => {
+                warnings.push(format!("{email}: Google signed this account out. Add it again under Accounts."));
+                first_error.get_or_insert(AppError::NotSignedIn);
+            }
+            Err(e) => {
+                warnings.push(format!("{email}: {e}"));
+                first_error.get_or_insert(e);
+                signed_in.push(email);
+            }
+        }
+    }
+    // If one account fails, still show the others.
+    if !loaded_any && let Some(e) = first_error {
+        return Err(e);
+    }
+
     match tasks {
         Some(Ok(tasks)) => items.extend(tasks),
         // A Todoist problem shouldn't hide your calendar; show it as a warning.
@@ -104,7 +142,7 @@ pub async fn load(
     }
 
     items.sort_by_cached_key(|item| (start_timestamp(item), !item.all_day, item.title.clone()));
-    Ok(Agenda { account: google.account, items, warnings })
+    Ok(Agenda { accounts: signed_in, items, warnings })
 }
 
 /// Start time as a Unix timestamp; all-day items count as starting at local

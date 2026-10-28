@@ -489,6 +489,29 @@ main.loading > * {
   color: var(--error);
 }
 
+.account-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.account-list li:last-child {
+  border-bottom: none;
+}
+
+.account-email {
+  overflow-wrap: anywhere;
+}
+
 .dialog-buttons {
   display: flex;
   justify-content: flex-end;

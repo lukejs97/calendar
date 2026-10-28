@@ -28,7 +28,8 @@ export interface AgendaItem {
 }
 
 export interface Agenda {
-  account: string | null;
+  /** The Google accounts' email addresses. */
+  accounts: string[];
   items: AgendaItem[];
   warnings: string[];
 }
@@ -40,8 +41,10 @@ export interface AppError {
 }
 
 export const authStatus = () => invoke<boolean>("auth_status");
-export const signIn = () => invoke<void>("sign_in");
-export const signOut = () => invoke<void>("sign_out");
+/** Adds a Google account (or renews one already added); resolves to its email. */
+export const signIn = () => invoke<string>("sign_in");
+export const googleAccounts = () => invoke<string[]>("google_accounts");
+export const removeGoogleAccount = (email: string) => invoke<void>("remove_google_account", { email });
 /** Items from local date `from` up to (not including) `to`, both "YYYY-MM-DD". */
 export const getAgenda = (from: string, to: string) => invoke<Agenda>("get_agenda", { from, to });
 

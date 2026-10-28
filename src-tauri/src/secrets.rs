@@ -9,7 +9,11 @@ use crate::error::Result;
 /// com.lukesassa.calendar so existing sign-ins stay where they are.
 const SERVICE: &str = "com.mycalendar.app";
 
-pub const GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
+/// JSON list of the signed-in Google accounts and their refresh tokens.
+pub const GOOGLE_ACCOUNTS: &str = "google-accounts";
+/// Where the one Google account's refresh token lived before the app
+/// supported several. Moved into `GOOGLE_ACCOUNTS` on first use.
+pub const LEGACY_GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
 pub const TODOIST_TOKEN: &str = "todoist-token";
 
 pub fn get(key: &str) -> Result<Option<String>> {
