@@ -81,11 +81,15 @@ jobs:
 
       - name: Show how the app is signed
         run: |
-          app=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app 2>/dev/null | head -1)
-          if [ -z "$app" ]; then echo "No .app found to check."; exit 0; fi
+          # The app as installed: inside the .dmg.
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          mount="$RUNNER_TEMP/dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" > /dev/null
+          app=$(ls -d "$mount"/*.app | head -1)
           codesign --verify --verbose "$app"
           codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
           codesign --display --requirements - "$app" 2>&1 | grep designated || true
+          hdiutil detach "$mount" > /dev/null
 
       - uses: actions/upload-artifact@v4
         with:
