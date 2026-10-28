@@ -47,6 +47,25 @@ Details: <https://tauri.app/start/prerequisites/>
 
 To build an installer: `npm run tauri build`. Output goes to `src-tauri/target/release/bundle/`.
 
+### Installing on a Mac without developer tools
+
+GitHub can build the Mac app for you (`.github/workflows/build-macos.yml`):
+
+1. Once: in the repo on GitHub, Settings → Secrets and variables → Actions →
+   **New repository secret**. Add `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET` with the values from `src-tauri/.env`.
+2. Actions tab → **Build macOS app** → **Run workflow**. It takes about
+   10–15 minutes.
+3. Open the finished run, download **Calendar-macOS** under Artifacts, unzip
+   it, open the `.dmg` and drag Calendar to Applications.
+4. The first time, macOS blocks it because the app isn't notarized (Apple's
+   paid check): System Settings → Privacy & Security → **Open Anyway**.
+5. When asked whether Calendar may use its keychain item, choose
+   **Always Allow**.
+
+The build runs for Apple Silicon and Intel Macs. Private repos get free monthly
+Actions minutes; a Mac build uses a small share of them.
+
 ## Where things are stored
 
 - **Refresh token:** in your OS keychain under the service `com.mycalendar.app`.

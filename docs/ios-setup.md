@@ -66,14 +66,30 @@ config. Fix: `cargo clean -p tauri-plugin-deep-link --target aarch64-apple-ios-s
 
 ## 2. Get the code onto the Mac
 
-The project is in a **private** GitHub repo, `lukejs97/calendar`:
+The project is in a **private** GitHub repo, `lukejs97/calendar` (a personal
+account). On this Mac the **work** GitHub account stays the main one, so the
+repo uses its own SSH key through a host alias, `github-personal`:
 
 ```bash
-gh auth login
-gh repo clone lukejs97/calendar
+ssh-keygen -t ed25519 -C "lukesassa9@gmail.com" -f ~/.ssh/id_ed25519_personal
+printf '\nHost github-personal\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519_personal\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+pbcopy < ~/.ssh/id_ed25519_personal.pub
+```
+
+Add the copied key to the **lukejs97** account (GitHub → Settings → SSH and
+GPG keys → New SSH key), then:
+
+```bash
+ssh -T git@github-personal          # should greet lukejs97
+git clone git@github-personal:lukejs97/calendar.git
 cd calendar
+git config user.name "Luke Sassa"
+git config user.email "lukesassa9@gmail.com"
 npm install
 ```
+
+Don't use `gh` for this repo on the Mac (it's logged in to the work account);
+plain `git` works through the alias.
 
 ## 3. Create `src-tauri/.env`
 
