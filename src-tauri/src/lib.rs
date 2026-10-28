@@ -1,5 +1,9 @@
 mod agenda;
+#[cfg(desktop)]
+mod alerts;
 mod cache;
+#[cfg(desktop)]
+mod desktop;
 mod error;
 mod google;
 mod search;
@@ -19,9 +23,9 @@ use error::{AppError, Result};
 use google::auth::GoogleAuth;
 use google::calendar::{EventCalendar, EventDraft, EventTimes};
 
-struct AppState {
-    http: reqwest::Client,
-    google_auth: GoogleAuth,
+pub(crate) struct AppState {
+    pub(crate) http: reqwest::Client,
+    pub(crate) google_auth: GoogleAuth,
 }
 
 // Commands: Rust functions the TypeScript frontend calls with `invoke(...)`.
@@ -36,7 +40,9 @@ fn auth_status(state: State<'_, AppState>) -> Result<bool> {
 /// Adds a Google account (or renews one already added); returns its email.
 #[tauri::command]
 async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<String> {
-    state.google_auth.sign_in(&app).await
+    let email = state.google_auth.sign_in(&app).await?;
+    events_changed();
+    Ok(email)
 }
 
 #[tauri::command]
@@ -52,6 +58,7 @@ async fn remove_google_account(
 ) -> Result<()> {
     state.google_auth.remove_account(&email).await?;
     cache.forget(&email);
+    events_changed();
     Ok(())
 }
 
@@ -158,7 +165,9 @@ async fn create_event(
     event: EventDraft,
 ) -> Result<()> {
     let token = state.google_auth.access_token(&email).await?;
-    google::calendar::create_event(&state.http, &token, &calendar_id, &event).await
+    google::calendar::create_event(&state.http, &token, &calendar_id, &event).await?;
+    events_changed();
+    Ok(())
 }
 
 /// Which Google event: its account, calendar and ID. For a repeating event,
@@ -187,7 +196,9 @@ async fn update_event(
         google::calendar::move_to_calendar(&state.http, &token, &calendar_id, &target.event_id, &destination).await?;
         calendar_id = destination;
     }
-    google::calendar::update_event(&state.http, &token, &calendar_id, &target.event_id, &event, notify_guests).await
+    google::calendar::update_event(&state.http, &token, &calendar_id, &target.event_id, &event, notify_guests).await?;
+    events_changed();
+    Ok(())
 }
 
 /// Moves or resizes an event (dragging it).
@@ -200,13 +211,32 @@ async fn set_event_times(
 ) -> Result<()> {
     let token = state.google_auth.access_token(&target.email).await?;
     google::calendar::set_event_times(&state.http, &token, &target.calendar_id, &target.event_id, &times, notify_guests)
-        .await
+        .await?;
+    events_changed();
+    Ok(())
 }
 
 #[tauri::command]
 async fn delete_event(state: State<'_, AppState>, target: EventRef, notify_guests: bool) -> Result<()> {
     let token = state.google_auth.access_token(&target.email).await?;
-    google::calendar::delete_event(&state.http, &token, &target.calendar_id, &target.event_id, notify_guests).await
+    google::calendar::delete_event(&state.http, &token, &target.calendar_id, &target.event_id, notify_guests).await?;
+    events_changed();
+    Ok(())
+}
+
+/// Events were added, changed or removed here: reload before checking alerts.
+fn events_changed() {
+    #[cfg(desktop)]
+    alerts::refresh();
+}
+
+/// Brings up the main window, e.g. from the menu bar window.
+#[tauri::command]
+fn show_main(app: AppHandle) {
+    #[cfg(desktop)]
+    desktop::show_main(&app);
+    #[cfg(mobile)]
+    let _ = app;
 }
 
 fn parse_date(s: &str) -> Result<NaiveDate> {
@@ -285,7 +315,10 @@ pub fn run() {
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_notification::init());
+    let builder = builder
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_positioner::init());
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
@@ -296,6 +329,11 @@ pub fn run() {
             app.manage(AgendaCache::load(path));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
+            #[cfg(desktop)]
+            {
+                desktop::setup(app)?;
+                alerts::start(app.handle().clone());
+            }
             Ok(())
         })
         .manage(AppState { google_auth: GoogleAuth::new(http.clone()), http })
@@ -321,9 +359,17 @@ pub fn run() {
             set_task_due,
             delete_task,
             set_task_completed,
+            show_main,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // Clicking the Dock icon with the window closed opens it again.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                desktop::show_main(_app);
+            }
+        });
 }
 
 /// iOS: Google's sign-in redirect comes back as a deep link (a custom URL

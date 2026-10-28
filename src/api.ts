@@ -199,6 +199,9 @@ export const deleteTask = (id: string) => invoke<void>("delete_task", { id });
 export const setTaskCompleted = (id: string, completed: boolean) =>
   invoke<void>("set_task_completed", { id, completed });
 
+/** Brings up the main window (from the menu bar window). */
+export const showMain = () => invoke<void>("show_main");
+
 function isAppError(e: unknown): e is AppError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
 }

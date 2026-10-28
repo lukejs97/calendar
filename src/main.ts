@@ -13,11 +13,11 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
-import { refreshAlerts, startAlerts, stopAlerts } from "./alerts";
 import { openDetails } from "./details";
 import { el } from "./dom";
 import { openEdit, openNew } from "./event-form";
 import { openSearch } from "./search";
+import { announceChange, onChangeElsewhere } from "./sync";
 import { openAccountsSettings, openTodoistSettings } from "./settings";
 import { itemEnd, itemStart, localTimeZone, overlaps, startOfDay, timeFormat, toDateString, toLocalIso } from "./time";
 import { VIEW_ORDER, VIEWS, type ViewName } from "./views";
@@ -119,6 +119,7 @@ async function toggleTask(item: AgendaItem): Promise<void> {
   rerender();
   try {
     await setTaskCompleted(item.id, completed);
+    announceChange();
     if (!completed) {
       // Reopened: Todoist lists it again, so fetch it fresh.
       toggledTasks.delete(item.id);
@@ -160,7 +161,7 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
       const times = { start: format(start), end: format(end), allDay: item.allDay, timeZone: localTimeZone() };
       await setEventTimes(eventRef(item), times, hasGuests(item));
     }
-    refreshAlerts();
+    announceChange();
     // Other cached ranges may show it too; fetch them fresh when visited.
     for (const key of cache.keys()) if (key !== shown?.range) cache.delete(key);
   } catch (e) {
@@ -253,12 +254,10 @@ function showCalendar(): void {
   void load();
   window.clearInterval(refreshTimer);
   refreshTimer = window.setInterval(load, REFRESH_EVERY_MS);
-  void startAlerts();
 }
 
 function showSignedOut(error?: string): void {
   window.clearInterval(refreshTimer);
-  stopAlerts();
   latestRequest++; // ignore any request still in flight
   cache.clear();
   toggledTasks.clear();
@@ -292,7 +291,7 @@ function showSignedOut(error?: string): void {
 /** Reloads everything after an event or task was edited or deleted. */
 function changed(): void {
   cache.clear();
-  refreshAlerts();
+  announceChange();
   void load();
 }
 
@@ -308,7 +307,7 @@ function showDetails(item: AgendaItem): void {
 function newEvent(): void {
   openNew(({ start, allDay }) => {
     cache.clear();
-    refreshAlerts();
+    announceChange();
     if (!start) return void load(); // a task without a date isn't on the calendar
     if (!allDay) reveal = start;
     goTo(state.view, start);
@@ -414,7 +413,17 @@ async function start(): Promise<void> {
   // In a plain browser (`npm run dev`) there's no Rust side; use sample data.
   if (import.meta.env.DEV && !isTauri()) (await import("./dev-mock")).install();
 
+  // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
+  const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");
+  if (window.__MINUTEMAN_FLYOUT__ || flyoutPreview) return (await import("./flyout")).startFlyout();
+
   setUpControls();
+  // Changed in the menu bar window: show it here too.
+  onChangeElsewhere(() => {
+    if (toolbar.hidden) return;
+    cache.clear();
+    void load();
+  });
   try {
     if (await authStatus()) showCalendar();
     else showSignedOut();

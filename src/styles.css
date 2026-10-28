@@ -1339,3 +1339,120 @@ main.loading > * {
     height: 10px;
   }
 }
+
+/* ---------- Menu bar window ---------- */
+
+body.flyout {
+  border: 1px solid var(--border);
+}
+
+body.flyout #app {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.flyout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 6px 16px;
+}
+
+.flyout-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.flyout-date {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mini-month {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mini-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mini-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  text-align: center;
+}
+
+.mini-weekday {
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mini-day {
+  position: relative;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-day:hover {
+  background: var(--surface);
+}
+
+.mini-day.other-month {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.mini-day.today {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mini-day[aria-pressed="true"] {
+  color: var(--on-accent);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+/* A dot under days with something on. */
+.mini-day.busy::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.flyout-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.flyout .item {
+  grid-template-columns: 18px 62px 1fr;
+}
