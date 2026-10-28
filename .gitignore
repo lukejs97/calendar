@@ -25,3 +25,6 @@ dist-ssr
 
 # Google OAuth client ID/secret (see src-tauri/.env.example)
 src-tauri/.env
+
+# Screenshots from local test runs
+/*.png

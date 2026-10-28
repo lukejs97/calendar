@@ -64,7 +64,7 @@ reading your calendars, and adding events to them.
 5. Click **Update**, then **Save** at the bottom of the page.
 
 Accounts added before the app could create events only gave permission to
-read. To add events to one, add it again (**Accounts → Add account**, pick the
+read. To add events to one, add it again (**Settings → Google accounts → Add account**, pick the
 same account) and allow both on Google's page.
 
 ## 5. Create the "Desktop app" OAuth client
@@ -111,12 +111,12 @@ Workaround: stay in **Testing** and add yourself as a test user:
 
 1. **Audience → Test users → Add users**, enter your Gmail address, press
    Enter so it becomes a chip, then **Save**. Add every Google account you'll
-   use in the app (Accounts → Add account); one that isn't listed gets
+   use in the app (Settings → Google accounts → Add account); one that isn't listed gets
    `Error 403: access_denied`.
 2. Use the app normally. About every 7 days Google ends the sign-in, and the app
    shows "Your Google session ended" (or, for one of several accounts, "Google
    signed this account out"). Sign in again, or add the account again under
-   **Accounts**.
+   **Settings → Google accounts**.
 
 Try **Publish app** again now and then. Once it works, go to **Accounts → Add
 account** and pick each account again, to get tokens without the 7-day limit. Adding an **Application home page** and
@@ -152,7 +152,7 @@ says verification is needed, you can ignore it.
 4. The browser tab says "You're signed in". Close it. The app shows your agenda.
 
 If you signed in while the app was still in **Testing**, add each account again
-after publishing (**Accounts → Add account**; picking an account that's already
+after publishing (**Settings → Google accounts → Add account**; picking an account that's already
 there renews it). Otherwise the old token still expires after 7 days.
 
 ## Troubleshooting
