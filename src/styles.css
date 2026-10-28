@@ -1372,38 +1372,38 @@ body.flyout #app {
   color: var(--muted);
 }
 
-.mini-month {
+.fly-month {
   padding: 0 12px 8px;
   border-bottom: 1px solid var(--border);
 }
 
-.mini-nav {
+.fly-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.mini-title {
+.fly-month-title {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
 }
 
-.mini-grid {
+.fly-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 1px;
   text-align: center;
 }
 
-.mini-weekday {
+.fly-weekday {
   padding: 2px 0;
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
 }
 
-.mini-day {
+.fly-day {
   position: relative;
   height: 30px;
   border: none;
@@ -1413,28 +1413,28 @@ body.flyout #app {
   font-variant-numeric: tabular-nums;
 }
 
-.mini-day:hover {
+.fly-day:hover {
   background: var(--surface);
 }
 
-.mini-day.other-month {
+.fly-day.other-month {
   color: var(--muted);
   opacity: 0.6;
 }
 
-.mini-day.today {
+.fly-day.today {
   color: var(--accent);
   font-weight: 700;
 }
 
-.mini-day[aria-pressed="true"] {
+.fly-day[aria-pressed="true"] {
   color: var(--on-accent);
   background: var(--accent);
   font-weight: 600;
 }
 
 /* A dot under days with something on. */
-.mini-day.busy::after {
+.fly-day.busy::after {
   content: "";
   position: absolute;
   left: 50%;

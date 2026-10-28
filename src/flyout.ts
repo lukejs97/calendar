@@ -97,22 +97,22 @@ function header(today: Date): HTMLElement {
 }
 
 function miniMonth(items: AgendaItem[], today: Date): HTMLElement {
-  const box = el("section", "mini-month");
-  const nav = el("div", "mini-nav");
+  const box = el("section", "fly-month");
+  const nav = el("div", "fly-nav");
   const prev = el("button", "icon-button", "‹");
   prev.setAttribute("aria-label", "Previous month");
   prev.addEventListener("click", () => goToMonth(-1));
   const next = el("button", "icon-button", "›");
   next.setAttribute("aria-label", "Next month");
   next.addEventListener("click", () => goToMonth(1));
-  nav.append(prev, el("h2", "mini-title", monthTitle.format(state.month)), next);
+  nav.append(prev, el("h2", "fly-month-title", monthTitle.format(state.month)), next);
 
-  const grid = el("div", "mini-grid");
+  const grid = el("div", "fly-grid");
   const first = startOfWeek(state.month);
-  for (let i = 0; i < 7; i++) grid.append(el("span", "mini-weekday", weekdayLetter.format(addDays(first, i))));
+  for (let i = 0; i < 7; i++) grid.append(el("span", "fly-weekday", weekdayLetter.format(addDays(first, i))));
   for (let i = 0; i < 42; i++) {
     const day = addDays(first, i);
-    const cell = el("button", "mini-day", String(day.getDate()));
+    const cell = el("button", "fly-day", String(day.getDate()));
     if (day.getMonth() !== state.month.getMonth()) cell.classList.add("other-month");
     if (isSameDay(day, today)) cell.classList.add("today");
     if (isSameDay(day, state.selected)) cell.setAttribute("aria-pressed", "true");
