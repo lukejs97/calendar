@@ -83,8 +83,8 @@ fn create_tray(app: &App) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id("minuteman")
         .icon(icon)
-        // macOS draws it in the menu bar's own colours, light or dark.
-        .icon_as_template(true)
+        // The app's own logo, in its colours (icons/source/tray.svg).
+        .icon_as_template(false)
         .tooltip("Minuteman")
         .menu(&menu)
         // Left click: the small window; right click: the menu.

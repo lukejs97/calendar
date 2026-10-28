@@ -66,7 +66,7 @@ config. Fix: `cargo clean -p tauri-plugin-deep-link --target aarch64-apple-ios-s
 
 ## 2. Get the code onto the Mac
 
-The project is in a **private** GitHub repo, `lukejs97/calendar` (a personal
+The project is in a public GitHub repo, `lukejs97/calendar` (a personal
 account). On this Mac the **work** GitHub account stays the main one, so the
 repo uses its own SSH key through a host alias, `github-personal`:
 

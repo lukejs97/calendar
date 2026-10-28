@@ -35,7 +35,7 @@ APIs are switched off by default in a new project.
 
 ## 3. Configure the OAuth consent screen
 
-The *consent screen* is the Google page that says "Calendar wants to access your
+The *consent screen* is the Google page that says "Minuteman wants to access your
 Google Account". Here you give it a name and decide who can use it. In the
 console this section is called **Google Auth Platform**.
 

@@ -1,7 +1,7 @@
 [package]
 name = "calendar"
 version = "0.1.0"
-description = "A personal calendar app on top of Google Calendar"
+description = "Minuteman: a personal calendar app on top of Google Calendar"
 authors = ["you"]
 edition = "2024"
 

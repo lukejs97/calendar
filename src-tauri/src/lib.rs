@@ -318,7 +318,7 @@ async fn set_task_completed(state: State<'_, AppState>, id: String, completed: b
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let http = reqwest::Client::builder()
-        .user_agent(concat!("calendar/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Minuteman/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
         .build()
         .expect("failed to build HTTP client");

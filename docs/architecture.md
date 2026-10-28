@@ -57,8 +57,8 @@ Design rules:
 
 Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 
-- A `TrayIconBuilder` icon (`icons/tray.png`, a template image macOS tints
-  for light or dark menu bars). Left click toggles the `flyout` window;
+- A `TrayIconBuilder` icon (`icons/tray.png`: the logo in colour, rendered
+  from `icons/source/tray.svg`, the icon artwork cropped to its tile). Left click toggles the `flyout` window;
   right click shows Open / New Event… / Quit.
 - The `flyout` window is built in `setup` (380×600, no frame, always on
   top, hidden) and loads the same page with `window.__MINUTEMAN_FLYOUT__`
