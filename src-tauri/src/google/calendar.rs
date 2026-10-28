@@ -1,7 +1,7 @@
 //! Google Calendar API v3: the user's calendar list, the events on each
 //! calendar within a time range, and adding events.
 
-use chrono::{DateTime, Local, NaiveDate};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use futures::future::join_all;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -392,6 +392,105 @@ pub async fn update_event(
     Ok(())
 }
 
+/// Saves an edit made to every event in a repeating series, from one of its
+/// occurrences (`occurrence`: when that one was, before the edit). Times are
+/// changed by as much as the occurrence's were, so the series keeps its own
+/// first date: an occurrence moved from 10:00 to 11:00 a day later moves every
+/// event to 11:00 a day later.
+pub async fn update_series(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    series_id: &str,
+    occurrence: &EventTimes,
+    draft: &EventDraft,
+    notify_guests: bool,
+) -> Result<()> {
+    let mut body = draft.to_json()?;
+    let fields = body.as_object_mut().expect("an object");
+    fields.remove("start");
+    fields.remove("end");
+    if let Some(times) = series_times_for_edit(http, token, calendar_id, series_id, occurrence, &draft.times).await? {
+        let (start, end) = times.to_json()?;
+        fields.insert("start".into(), start);
+        fields.insert("end".into(), end);
+    }
+    let url = events_url(calendar_id, Some(series_id), notify_guests);
+    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
+    Ok(())
+}
+
+/// The series' new times, or `None` if the edit didn't change when it happens.
+async fn series_times_for_edit(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    series_id: &str,
+    occurrence: &EventTimes,
+    edited: &EventTimes,
+) -> Result<Option<EventTimes>> {
+    if occurrence.all_day == edited.all_day
+        && same_time(&occurrence.start, &edited.start)
+        && same_time(&occurrence.end, &edited.end)
+    {
+        return Ok(None);
+    }
+    let url = events_url(calendar_id, Some(series_id), false);
+    let series: Value = send(http.get(url).bearer_auth(token)).await?;
+    let first = series_first_day(&series["start"])
+        .ok_or_else(|| AppError::Api { status: 200, message: "Google sent a repeating event without a start".into() })?;
+    shift_series(first, occurrence, edited).map(Some)
+}
+
+/// Whether two `start`/`end` strings are the same moment (or day).
+fn same_time(a: &str, b: &str) -> bool {
+    a == b || matches!((parse_time(a), parse_time(b)), (Ok(a), Ok(b)) if a == b)
+}
+
+/// The local day a series starts on, from Google's `start` object.
+fn series_first_day(start: &Value) -> Option<NaiveDate> {
+    if let Some(date) = start["date"].as_str() {
+        return parse_day(date).ok();
+    }
+    let time = parse_time(start["dateTime"].as_str()?).ok()?;
+    Some(time.with_timezone(&Local).date_naive())
+}
+
+/// Local date and time of a `start`/`end` (midnight for whole days).
+fn local_time(s: &str, all_day: bool) -> Result<NaiveDateTime> {
+    if all_day {
+        return Ok(parse_day(s)?.and_time(NaiveTime::MIN));
+    }
+    Ok(parse_time(s)?.with_timezone(&Local).naive_local())
+}
+
+/// The series' times after an occurrence of it went from `occurrence` to
+/// `edited`: its first day moved by as many days, at the edited time and length.
+fn shift_series(first_day: NaiveDate, occurrence: &EventTimes, edited: &EventTimes) -> Result<EventTimes> {
+    let was = local_time(&occurrence.start, occurrence.all_day)?;
+    let start = local_time(&edited.start, edited.all_day)?;
+    let end = local_time(&edited.end, edited.all_day)?;
+    let day = first_day + (start.date() - was.date());
+    let new_start = day.and_time(start.time());
+    let new_end = new_start + (end - start);
+    let format = |t: NaiveDateTime| -> Result<String> {
+        if edited.all_day {
+            return Ok(t.date().to_string());
+        }
+        let local = Local
+            .from_local_datetime(&t)
+            .earliest()
+            .ok_or_else(|| AppError::InvalidInput("that time doesn't exist here (a clock change)".into()))?;
+        Ok(local.to_rfc3339())
+    };
+    Ok(EventTimes {
+        start: format(new_start)?,
+        end: format(new_end)?,
+        all_day: edited.all_day,
+        time_zone: edited.time_zone.clone(),
+    })
+}
+
 /// Moves an event to another of the same account's calendars.
 pub async fn move_to_calendar(
     http: &reqwest::Client,
@@ -638,6 +737,33 @@ mod tests {
 
     fn draft(json: Value) -> EventDraft {
         serde_json::from_value(json).unwrap()
+    }
+
+    /// A local time as RFC 3339, whatever zone the tests run in.
+    fn local(day: &str, time: &str) -> String {
+        let t = NaiveDateTime::parse_from_str(&format!("{day} {time}"), "%Y-%m-%d %H:%M").unwrap();
+        Local.from_local_datetime(&t).earliest().unwrap().to_rfc3339()
+    }
+
+    fn times(start: String, end: String, all_day: bool) -> EventTimes {
+        EventTimes { start, end, all_day, time_zone: None }
+    }
+
+    #[test]
+    fn editing_a_whole_series_keeps_its_first_day() {
+        // A weekly series from Monday 5 January; this Monday's 10:00 was moved
+        // to Tuesday, 11:00 to 11:30.
+        let first = parse_day("2026-01-05").unwrap();
+        let was = times(local("2026-10-26", "10:00"), local("2026-10-26", "11:00"), false);
+        let now = times(local("2026-10-27", "11:00"), local("2026-10-27", "11:30"), false);
+        let series = shift_series(first, &was, &now).unwrap();
+        assert!(same_time(&series.start, &local("2026-01-06", "11:00")));
+        assert!(same_time(&series.end, &local("2026-01-06", "11:30")));
+
+        // Made all day instead.
+        let all_day = times("2026-10-26".into(), "2026-10-27".into(), true);
+        let series = shift_series(first, &was, &all_day).unwrap();
+        assert_eq!((series.start.as_str(), series.end.as_str()), ("2026-01-05", "2026-01-06"));
     }
 
     #[test]

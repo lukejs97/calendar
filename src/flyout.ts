@@ -20,7 +20,17 @@ import { openDetails } from "./details";
 import { el } from "./dom";
 import { openEdit, openNew } from "./event-form";
 import { announceChange, onChangeElsewhere } from "./sync";
-import { addDays, addMonths, daysBetween, isSameDay, itemsOnDay, startOfDay, startOfWeek, toDateString } from "./time";
+import {
+  addDays,
+  addMonths,
+  daysBetween,
+  isSameDay,
+  itemsOnDay,
+  overlaps,
+  startOfDay,
+  startOfWeek,
+  toDateString,
+} from "./time";
 import { renderAgenda } from "./views/agenda";
 
 /** Days listed under the month: the chosen one and the six after it. */
@@ -126,10 +136,13 @@ function miniMonth(items: AgendaItem[], today: Date): HTMLElement {
 
 function list(items: AgendaItem[]): HTMLElement {
   const box = el("div", "flyout-list");
+  const from = state.selected;
+  const to = addDays(from, LIST_DAYS);
   renderAgenda(box, {
-    items,
-    from: state.selected,
-    to: addDays(state.selected, LIST_DAYS),
+    // Only these days: the list puts anything that began earlier on the first day.
+    items: items.filter((item) => overlaps(item, from, to)),
+    from,
+    to,
     anchor: state.selected,
     now: new Date(),
     preserveScroll: false,

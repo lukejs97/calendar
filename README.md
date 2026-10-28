@@ -18,8 +18,10 @@ no due date). Accounts added before this feature existed need adding again
 once (Accounts → Add account) to give permission.
 
 **Edit and delete**: click an event or task, then **Edit** or **Delete**. For
-a repeating event, choose this event only or all of them. Guests are emailed
-about changes if you tick the box.
+a repeating event, choose this event only or all of them; changing how it
+repeats applies to all of them, and moving one to another time moves every
+event in the series by as much. Guests are emailed about changes if you tick
+the box.
 
 **Event details**: click an event or task for its time, place (with a map
 link), a **Join** button for Google Meet, Zoom, Teams or Webex calls, guests

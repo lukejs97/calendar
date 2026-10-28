@@ -122,7 +122,7 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       task(day, "Renew passport", 1, PERSONAL_TASKS, undefined, true);
       task(day, "Buy groceries", 3, HOME);
     }
-    if (weekday === 1) timed(day, "Planning", WORK, 10, 60);
+    if (weekday === 1) timed(day, "Planning", WORK, 10, 60, undefined, { recurring: true, seriesId: "planning" });
     if (weekday === 2) {
       timed(day, "Design review", WORK, 11, 60, "Room 4");
       timed(day, "Lunch with Sam", PERSONAL, 11.5, 60, "Cafe Roma");
@@ -284,7 +284,12 @@ export function install(): void {
         return null;
       }
       case "update_event": {
-        const { target, event } = args as { target: { eventId: string }; event: EventDraft };
+        const { target, event, occurrence } = args as {
+          target: { eventId: string };
+          event: EventDraft;
+          occurrence: unknown;
+        };
+        if (occurrence) console.info("mock IPC: update_event for the whole series", target, event, occurrence);
         const { title, start, end, allDay, location, description } = event;
         edit(target.eventId, { title, start, end, allDay, location, description });
         return null;

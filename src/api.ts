@@ -174,9 +174,18 @@ export const search = (query: string) => invoke<SearchResults>("search", { query
 export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
 export const createEvent = (email: string, calendarId: string, event: EventDraft) =>
   invoke<void>("create_event", { email, calendarId, event });
-/** `moveTo`: another calendar in the same account, or null. `notifyGuests` emails them. */
-export const updateEvent = (target: EventRef, event: EventDraft, moveTo: string | null, notifyGuests: boolean) =>
-  invoke<void>("update_event", { target, event, moveTo, notifyGuests });
+/**
+ * `moveTo`: another calendar in the same account, or null. `notifyGuests`
+ * emails them. `occurrence`: when editing every event in a repeating series
+ * from one of them, that one's times before the edit (and `target` is the series).
+ */
+export const updateEvent = (
+  target: EventRef,
+  event: EventDraft,
+  moveTo: string | null,
+  notifyGuests: boolean,
+  occurrence: EventTimes | null = null,
+) => invoke<void>("update_event", { target, event, moveTo, notifyGuests, occurrence });
 /** Moves or resizes an event (dragging it). */
 export const setEventTimes = (target: EventRef, times: EventTimes, notifyGuests: boolean) =>
   invoke<void>("set_event_times", { target, times, notifyGuests });

@@ -100,7 +100,9 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `recurrence` RRULEs, `reminders` and `attendees`; guests are emailed).
   `update_event` PATCHes only the fields that changed and can move the event
   to another calendar first; `delete_event` DELETEs. For one occurrence of
-  a repeating event, "all events" uses `seriesId`. The `calendar.events`
+  a repeating event, "all events" uses `seriesId`; editing all events
+  (`update_series`) shifts the series' own start by as much as the edited
+  occurrence moved, so it keeps its first date. The `calendar.events`
   scope is in `google/auth.rs`; accounts added before need adding again
   once.
 - Tasks go to Todoist (`create_task`, `update_task`, `delete_task`), into

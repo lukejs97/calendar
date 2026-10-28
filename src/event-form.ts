@@ -137,6 +137,11 @@ class Form {
   private endTime = input("time");
   private location = input("text", "Place or video link");
   private repeat = select(REPEAT_OPTIONS);
+  /** For one event in a repeating series: change just it, or all of them. */
+  private scope = select([
+    ["one", "This event only"],
+    ["all", "All events in the series"],
+  ]);
   private alert = select(ALERT_OPTIONS);
   private guests = input("text", "Email addresses, separated by commas");
   private eventNotes = el("textarea", "text-input");
@@ -250,6 +255,7 @@ class Form {
     this.notifyGuests.checked = true;
     this.notifyRow.append(this.notifyGuests, " Email guests about the changes");
 
+    if (this.inSeries()) this.row(grid, "Change", this.scope);
     this.row(grid, "Title", this.eventTitle);
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
     this.row(grid, "Ends", this.endDate, this.endTime);
@@ -283,6 +289,13 @@ class Form {
     this.startTime.addEventListener("change", keepLength);
     this.startDate.addEventListener("focus", () => (previousStart = this.startValue()));
     this.startTime.addEventListener("focus", () => (previousStart = this.startValue()));
+    // A new repeat can only be for the whole series; one event alone keeps it.
+    this.repeat.addEventListener("change", () => {
+      if (this.inSeries() && this.repeat.value !== "keep") this.scope.value = "all";
+    });
+    this.scope.addEventListener("change", () => {
+      if (this.scope.value === "one") this.repeat.value = "keep";
+    });
     this.calendar.addEventListener("change", () => {
       if (!this.item) save(CALENDAR_STORAGE_KEY, this.calendarChoices[Number(this.calendar.value)]);
     });
@@ -422,8 +435,14 @@ class Form {
     const known = ALERT_OPTIONS.some(([value]) => value === String(minutes));
     if (minutes !== undefined && !known) this.alert.append(option(String(minutes), `${minutes} minutes before`));
     this.alert.value = minutes === undefined ? "default" : String(minutes);
-    if (item.recurring) {
-      this.repeat.replaceChildren(option("", "Repeats (changes apply to this event only)"));
+    if (this.inSeries()) {
+      // Which rule it repeats by isn't known here; "keep" leaves it be. Not
+      // repeating any more is Delete → All events (or this one) instead.
+      this.repeat.querySelector('option[value=""]')?.remove();
+      this.repeat.prepend(option("keep", "Repeats (as now)"));
+      this.repeat.value = "keep";
+    } else if (item.recurring) {
+      this.repeat.replaceChildren(option("", "Repeats"));
       this.repeat.disabled = true;
     }
     this.notifyRow.hidden = !item.attendees.some((a) => !a.isSelf);
@@ -582,7 +601,10 @@ class Form {
     const editing = (name: string) => !item || this.touched.has(name);
 
     let recurrence: string[] | null = null;
-    if (!item?.recurring && editing("repeat")) {
+    if (item?.recurring) {
+      const repeat = this.repeat.value;
+      if (this.wholeSeries() && repeat in REPEAT_RULES) recurrence = [REPEAT_RULES[repeat as Repeat]];
+    } else if (editing("repeat")) {
       const repeat = this.repeat.value as Repeat | "";
       recurrence = repeat ? [REPEAT_RULES[repeat]] : item ? [] : null;
     }
@@ -638,7 +660,24 @@ class Form {
       return;
     }
     const moveTo = choice && choice.calendarId !== this.item.listId ? choice.calendarId : null;
-    await updateEvent(eventRef(this.item), draft, moveTo, this.notifyGuests.checked && !this.notifyRow.hidden);
+    const item = this.item;
+    const whole = this.wholeSeries();
+    // Editing the whole series from this event: when this one was, so the
+    // others move by as much as it did.
+    const occurrence = whole
+      ? { start: item.start, end: item.end ?? item.start, allDay: item.allDay, timeZone: localTimeZone() }
+      : null;
+    const notify = this.notifyGuests.checked && !this.notifyRow.hidden;
+    await updateEvent(eventRef(item, whole), draft, moveTo, notify, occurrence);
+  }
+
+  /** One event of a repeating Google series, being edited. */
+  private inSeries(): boolean {
+    return Boolean(this.item?.recurring && this.item.kind === "event" && this.item.seriesId);
+  }
+
+  private wholeSeries(): boolean {
+    return this.inSeries() && this.scope.value === "all";
   }
 
   private taskDraft(): TaskDraft {

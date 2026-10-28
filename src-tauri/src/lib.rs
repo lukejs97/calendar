@@ -182,6 +182,9 @@ struct EventRef {
 
 /// Saves an edited event, first moving it to `move_to` (another calendar in
 /// the same account) if given. `notify_guests` emails them about the change.
+/// `occurrence` is set when editing every event in a repeating series from
+/// one of them: `target` is then the series, and `occurrence` when that one
+/// was before the edit.
 #[tauri::command]
 async fn update_event(
     state: State<'_, AppState>,
@@ -189,6 +192,7 @@ async fn update_event(
     event: EventDraft,
     move_to: Option<String>,
     notify_guests: bool,
+    occurrence: Option<EventTimes>,
 ) -> Result<()> {
     let token = state.google_auth.access_token(&target.email).await?;
     let mut calendar_id = target.calendar_id;
@@ -196,7 +200,13 @@ async fn update_event(
         google::calendar::move_to_calendar(&state.http, &token, &calendar_id, &target.event_id, &destination).await?;
         calendar_id = destination;
     }
-    google::calendar::update_event(&state.http, &token, &calendar_id, &target.event_id, &event, notify_guests).await?;
+    let (http, id) = (&state.http, &target.event_id);
+    match occurrence {
+        Some(occurrence) => {
+            google::calendar::update_series(http, &token, &calendar_id, id, &occurrence, &event, notify_guests).await?
+        }
+        None => google::calendar::update_event(http, &token, &calendar_id, id, &event, notify_guests).await?,
+    }
     events_changed();
     Ok(())
 }
