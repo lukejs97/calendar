@@ -96,6 +96,7 @@ export function renderAgenda(root: HTMLElement, ctx: ViewContext): void {
 
   for (const day of grouped) {
     const section = el("section", "day");
+    if (daysBetween(today, day.date) === 0) section.classList.add("today");
     section.append(el("h2", "day-label", dayLabel(day.date, today)));
     const items = el("ul", "items");
     for (const item of day.items) items.append(renderItem(item, day.date, ctx));

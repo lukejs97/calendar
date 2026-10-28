@@ -1,3 +1,6 @@
+// Caslon: the typeface the Declaration of Independence was first printed in.
+import "@fontsource/libre-caslon-text/latin-400.css";
+import "@fontsource/libre-caslon-text/latin-700.css";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   authStatus,

@@ -1,13 +1,22 @@
 :root {
-  --bg: #ffffff;
-  --surface: #f5f5f7;
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --border: #e5e5ea;
-  --accent: #d93f3f;
-  --on-accent: #ffffff;
-  --error: #c62828;
-  --warning-bg: #fff4e5;
+  /* From the logo: the flag's navy canton, its red and ivory stripes. */
+  --bg: #fbf8f1;
+  --surface: #f2ecdf;
+  --text: #1a2338;
+  --muted: #6f6a5e;
+  --border: #e6dece;
+  --accent: #b8323a;
+  --on-accent: #fbf8f1;
+  --error: #b3261e;
+  --warning-bg: #f8ead0;
+  /* The header, like the canton. */
+  --chrome: #1b2c4c;
+  --chrome-deep: #12203a;
+  --on-chrome: #f6f0e2;
+  --on-chrome-muted: #aeb6c8;
+  --stripe-red: #c23a41;
+  --stripe-ivory: #f3ecdc;
+  --serif: "Libre Caslon Text", "Iowan Old Style", Baskerville, Georgia, serif;
 
   --gutter: 56px;
   --month-line: 20px; /* keep in sync with LINE_HEIGHT in views/month.ts */
@@ -22,15 +31,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e;
-    --surface: #2c2c2e;
-    --text: #f5f5f7;
-    --muted: #98989d;
-    --border: #3a3a3c;
-    --accent: #ff6961;
-    --on-accent: #1c1c1e;
-    --error: #ff6b6b;
+    /* Night: navy all through, ivory ink. */
+    --bg: #101a2c;
+    --surface: #1a2740;
+    --text: #f1eadb;
+    --muted: #9aa3b5;
+    --border: #26344e;
+    --accent: #e0545b;
+    --on-accent: #fbf8f1;
+    --error: #ff7b72;
     --warning-bg: #3a2e1a;
+    --chrome: #0b1322;
+    --chrome-deep: #070d18;
+    --on-chrome: #f1eadb;
+    --on-chrome-muted: #8f99ad;
+    --stripe-red: #b8323a;
+    --stripe-ivory: #d9d0bd;
   }
 }
 
@@ -49,8 +65,7 @@ body {
   flex-direction: column;
   background: var(--bg);
   /* Phones: stay clear of the notch, rounded corners and home bar. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
@@ -82,19 +97,33 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px 4px;
+  /* Phones: the navy runs up behind the status bar. */
+  padding: calc(12px + env(safe-area-inset-top)) 16px 4px;
+  color: var(--on-chrome);
+  background: var(--chrome);
 }
 
 .topbar h1 {
   margin: 0;
-  font-size: 20px;
+  font-family: var(--serif);
+  font-size: 22px;
   font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .account {
   margin: 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--on-chrome-muted);
+}
+
+/* The header's buttons, light on navy. */
+.topbar,
+.toolbar {
+  --text: var(--on-chrome);
+  --muted: var(--on-chrome-muted);
+  --surface: rgb(255 255 255 / 0.12);
+  --border: rgb(255 255 255 / 0.28);
 }
 
 .actions,
@@ -165,13 +194,31 @@ button:disabled {
 }
 
 .toolbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 16px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 4px 16px 17px;
+  color: var(--on-chrome);
+  background: var(--chrome);
+}
+
+/* Under the header, a thin band of the flag's stripes. */
+.toolbar::after,
+.flyout-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9px;
+  background: linear-gradient(
+    var(--stripe-red) 0 3px,
+    var(--stripe-ivory) 3px 6px,
+    var(--stripe-red) 6px 9px
+  );
 }
 
 .pill-button {
@@ -199,8 +246,8 @@ button:disabled {
 }
 
 .segmented button[aria-pressed="true"] {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--on-chrome);
+  color: var(--chrome);
   font-weight: 600;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
 }
@@ -277,9 +324,10 @@ main.loading > * {
   z-index: 1;
   margin: 0;
   padding: 14px 16px 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
   background: var(--bg);
 }
 
@@ -465,7 +513,8 @@ main.loading > * {
 
 .dialog h2 {
   margin: 0 0 8px;
-  font-size: 18px;
+  font-family: var(--serif);
+  font-size: 19px;
 }
 
 .dialog p {
@@ -863,7 +912,7 @@ main.loading > * {
 .tl-date {
   min-width: 26px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: 6px;
   font-size: 17px;
   font-weight: 600;
   color: var(--text);
@@ -872,6 +921,20 @@ main.loading > * {
 .tl-day-header.today .tl-date {
   color: var(--on-accent);
   background: var(--accent);
+}
+
+/* Today: a star in a red square, as on the icon. */
+.tl-day-header.today .tl-date::before,
+.month-cell.today .month-date::before {
+  content: "★";
+  margin-right: 3px;
+  font-size: 0.7em;
+  vertical-align: 0.1em;
+}
+
+.day.today .day-label::before {
+  content: "★ ";
+  color: var(--accent);
 }
 
 .tl-allday {
@@ -1123,7 +1186,7 @@ main.loading > * {
   min-width: 24px;
   padding: 0 6px;
   border: none;
-  border-radius: 999px;
+  border-radius: 5px;
   background: transparent;
   font-size: 13px;
 }
@@ -1227,6 +1290,7 @@ main.loading > * {
   padding: 0 4px 6px;
   border: none;
   background: transparent;
+  font-family: var(--serif);
   font-size: 15px;
   font-weight: 700;
   color: var(--accent);
@@ -1305,6 +1369,7 @@ main.loading > * {
 }
 
 .mini-day.today {
+  border-radius: 22%;
   font-weight: 700;
   color: var(--on-accent);
   background: var(--accent);
@@ -1353,16 +1418,23 @@ body.flyout #app {
 }
 
 .flyout-head {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 12px 6px 16px;
+  padding: 12px 12px 19px 16px;
+  color: var(--on-chrome);
+  background: var(--chrome);
+  --text: var(--on-chrome);
+  --muted: var(--on-chrome-muted);
+  --surface: rgb(255 255 255 / 0.12);
 }
 
 .flyout-title {
   margin: 0;
-  font-size: 18px;
+  font-family: var(--serif);
+  font-size: 20px;
   font-weight: 700;
 }
 
@@ -1373,7 +1445,7 @@ body.flyout #app {
 }
 
 .fly-month {
-  padding: 0 12px 8px;
+  padding: 6px 12px 8px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1385,7 +1457,8 @@ body.flyout #app {
 
 .fly-month-title {
   margin: 0;
-  font-size: 14px;
+  font-family: var(--serif);
+  font-size: 15px;
   font-weight: 600;
 }
 

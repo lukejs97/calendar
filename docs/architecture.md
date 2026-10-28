@@ -156,9 +156,14 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `project.pbxproj`). The `identifier` stays `com.lukesassa.calendar`:
   changing it would move the app's data folder and keychain access, so
   you'd sign in again.
-- **Visual design:** colors, fonts and spacing live as CSS variables at the
-  top of `src/styles.css` (`--accent`, `--bg`, and so on), with a dark-mode
-  block below. Restyling starts there.
+- **Visual design (done):** taken from the icon. A navy header like the
+  flag's canton (`--chrome`) over a thin red/ivory/red stripe band, ivory
+  backgrounds, flag-red accent, and today as a star in a red square.
+  Headings use Libre Caslon (Caslon was the type of the first printed
+  Declaration of Independence), bundled from `@fontsource/libre-caslon-text`
+  so it works offline. Dark mode is navy throughout with ivory text. All
+  colors are CSS variables at the top of `src/styles.css`, with the dark
+  block just below.
 - **Google consent screen:** the app name, and a logo if you want one, on
   Google Auth Platform → Branding. Uploading a logo requires Google's brand
   verification once the app is published.
