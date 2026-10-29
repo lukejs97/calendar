@@ -24,3 +24,27 @@ export function setMultiDayCount(days: number): void {
     // Then it lasts until the app closes, via the view on screen.
   }
 }
+
+const HOUR_HEIGHT_KEY = "calendar.hourHeight";
+/** px per hour in the day, multi-day and week views; pinching changes it. */
+export const MIN_HOUR_HEIGHT = 20;
+export const MAX_HOUR_HEIGHT = 240;
+const DEFAULT_HOUR_HEIGHT = 48;
+
+export function hourHeight(): number {
+  try {
+    const saved = Number(localStorage.getItem(HOUR_HEIGHT_KEY));
+    if (saved >= MIN_HOUR_HEIGHT && saved <= MAX_HOUR_HEIGHT) return saved;
+  } catch {
+    // Storage unavailable; use the default.
+  }
+  return DEFAULT_HOUR_HEIGHT;
+}
+
+export function setHourHeight(px: number): void {
+  try {
+    localStorage.setItem(HOUR_HEIGHT_KEY, String(Math.round(px)));
+  } catch {
+    // Then it lasts until the view is redrawn.
+  }
+}

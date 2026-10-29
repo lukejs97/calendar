@@ -9,6 +9,12 @@
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
 import {
+  hourHeight as savedHourHeight,
+  MAX_HOUR_HEIGHT,
+  MIN_HOUR_HEIGHT,
+  setHourHeight,
+} from "../preferences";
+import {
   addDays,
   compareForDay,
   daysBetween,
@@ -23,10 +29,17 @@ import {
 import { enableDayDrag } from "./drag";
 import type { ViewContext } from "./types";
 
-const HOUR_HEIGHT = 48; // px
-const PX_PER_MS = HOUR_HEIGHT / (60 * MS_PER_MINUTE);
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+/** px per hour. Pinching changes it (see `enablePinch`); it's kept per device. */
+let hourHeight = savedHourHeight();
 const MIN_EVENT_HEIGHT = 18; // px, so short events stay clickable and readable
-const MIN_EVENT_MS = MIN_EVENT_HEIGHT / PX_PER_MS;
+const minEventMs = () => (MIN_EVENT_HEIGHT / hourHeight) * MS_PER_HOUR;
+
+/**
+ * A vertical position or length for `ms` of time, in CSS that follows
+ * --hour-height, so a pinch can stretch the whole view without redrawing it.
+ */
+const timeLength = (ms: number) => `calc(var(--hour-height) * ${ms / MS_PER_HOUR})`;
 /** Dragged events move and resize in steps of this many minutes. */
 const SNAP_MINUTES = 15;
 /** px at the bottom of an event that resize it instead of moving it. */
@@ -65,7 +78,7 @@ function layoutColumns(segments: Segment[]): void {
 
   for (const seg of segments) {
     // Use the drawn height, so tiny events that look overlapping are treated so.
-    const visualEnd = Math.max(seg.end, seg.start + MIN_EVENT_MS);
+    const visualEnd = Math.max(seg.end, seg.start + minEventMs());
     if (seg.start >= clusterEnd) closeCluster();
     let column = columnEnds.findIndex((end) => end <= seg.start);
     if (column === -1) {
@@ -82,7 +95,7 @@ function layoutColumns(segments: Segment[]): void {
 }
 
 function positionNowLine(line: HTMLElement): void {
-  line.style.top = `${(Date.now() - Number(line.dataset.dayStart)) * PX_PER_MS}px`;
+  line.style.top = timeLength(Date.now() - Number(line.dataset.dayStart));
 }
 
 // Keep the red "now" line moving without re-drawing the view.
@@ -162,9 +175,10 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
   setItemColor(block, item);
   if (item.kind === "event" && itemEnd(item) <= ctx.now) block.classList.add("past");
 
-  const height = Math.max(MIN_EVENT_HEIGHT, (seg.end - seg.start) * PX_PER_MS);
-  block.style.top = `${(seg.start - dayStart) * PX_PER_MS}px`;
-  block.style.height = `${height}px`;
+  // Height now, to choose a layout; the block itself follows --hour-height.
+  const height = Math.max(MIN_EVENT_HEIGHT, ((seg.end - seg.start) / MS_PER_HOUR) * hourHeight);
+  block.style.top = timeLength(seg.start - dayStart);
+  block.style.height = `max(${MIN_EVENT_HEIGHT}px, ${timeLength(seg.end - seg.start)})`;
   block.style.left = `${(seg.column / seg.columns) * 100}%`;
   block.style.width = `calc(${100 / seg.columns}% - 2px)`;
 
@@ -207,8 +221,8 @@ function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): voi
     const homeColumn = columns.indexOf(block.parentElement as HTMLElement);
     const start = itemStart(item);
     const end = itemEnd(item);
-    const top = parseFloat(block.style.top);
-    const height = parseFloat(block.style.height);
+    const top = block.offsetTop;
+    const height = block.offsetHeight;
     const label = block.querySelector<HTMLElement>(".tl-event-time");
     let minutes = 0;
     let days = 0;
@@ -225,11 +239,11 @@ function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): voi
         dragging = true;
         block.classList.add("dragging");
       }
-      minutes = Math.round(dy / HOUR_HEIGHT * 60 / SNAP_MINUTES) * SNAP_MINUTES;
+      minutes = Math.round(dy / hourHeight * 60 / SNAP_MINUTES) * SNAP_MINUTES;
       if (resizing) {
         // At least one step long.
         minutes = Math.max(minutes, SNAP_MINUTES - Math.round((end.getTime() - start.getTime()) / MS_PER_MINUTE));
-        block.style.height = `${Math.max(MIN_EVENT_HEIGHT, height + minutes * HOUR_HEIGHT / 60)}px`;
+        block.style.height = `${Math.max(MIN_EVENT_HEIGHT, height + minutes * hourHeight / 60)}px`;
       } else {
         const over = columns.findIndex((column) => {
           const rect = column.getBoundingClientRect();
@@ -239,7 +253,7 @@ function enableDrag(block: HTMLElement, item: AgendaItem, ctx: ViewContext): voi
           days = over - homeColumn;
           columns[over].append(block);
         }
-        block.style.top = `${top + minutes * HOUR_HEIGHT / 60}px`;
+        block.style.top = `${top + minutes * hourHeight / 60}px`;
       }
       const [newStart, newEnd] = times();
       if (label) label.textContent = `${timeFormat.format(newStart)} – ${timeFormat.format(newEnd)}`;
@@ -310,7 +324,7 @@ const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>
 export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[], visible = days.length): void {
   const timeline = el("div", "timeline");
   timeline.style.setProperty("--columns", String(days.length));
-  timeline.style.setProperty("--hour-height", `${HOUR_HEIGHT}px`);
+  timeline.style.setProperty("--hour-height", `${hourHeight}px`);
   if (days.length === 1) timeline.classList.add("single-day");
 
   // One box scrolls both ways; the day headers stay at the top and the hours
@@ -324,7 +338,7 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
   const hours = el("div", "tl-gutter tl-hours");
   for (let h = 1; h < 24; h++) {
     const label = el("span", "tl-hour", hourFormat.format(new Date(2000, 0, 1, h)));
-    label.style.top = `${h * HOUR_HEIGHT}px`;
+    label.style.top = timeLength(h * MS_PER_HOUR);
     hours.append(label);
   }
   grid.append(hours, ...days.map((day) => dayColumn(ctx, day)));
@@ -374,15 +388,123 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
   }
 
   if (ctx.reveal) {
-    scroller.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * HOUR_HEIGHT;
+    scroller.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * hourHeight;
   } else if (previousScroll !== undefined) {
     scroller.scrollTop = previousScroll;
   } else {
     // Start at 7 AM, or a couple of hours before now when today is shown.
     const shown = days.slice(first, first + visible);
     const showsToday = shown.some((day) => isSameDay(day, ctx.now));
-    scroller.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * HOUR_HEIGHT;
+    scroller.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * hourHeight;
   }
+
+  // After a pinch, draw again at the new size (short events change layout),
+  // keeping the days and hours on screen where they are.
+  enablePinch(scroller, timeline, () =>
+    renderTimeline(root, { ...ctx, anchor: days[first], preserveScroll: true, reveal: undefined }, days, visible),
+  );
+}
+
+/**
+ * Pinching up and down shows more or fewer hours: two fingers on a touch
+ * screen, or a trackpad pinch (which browsers report as ctrl + mouse wheel,
+ * and Safari as "gesture" events). Only the vertical spread of the fingers
+ * counts. The time under the fingers stays where it is. Once the pinch ends,
+ * the size is saved and `redraw` runs.
+ */
+function enablePinch(scroller: HTMLElement, timeline: HTMLElement, redraw: () => void): void {
+  let settle: number | undefined;
+  /** Where the hours start inside the scrolling content, in px. */
+  const gridTop = () => {
+    const grid = scroller.querySelector<HTMLElement>(".tl-grid")!;
+    return grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  };
+
+  /** Sets the hour height, keeping the time at `clientY` (a screen position) in place. */
+  const zoomTo = (height: number, clientY: number) => {
+    height = Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, height));
+    if (Math.abs(height - hourHeight) < 0.1) return;
+    const offset = clientY - scroller.getBoundingClientRect().top;
+    const top = gridTop();
+    const hoursAtPoint = (scroller.scrollTop + offset - top) / hourHeight;
+    hourHeight = height;
+    timeline.style.setProperty("--hour-height", `${height}px`);
+    scroller.scrollTop = top + hoursAtPoint * height - offset;
+  };
+
+  const finish = () => {
+    window.clearTimeout(settle);
+    settle = window.setTimeout(() => {
+      setHourHeight(hourHeight);
+      if (scroller.isConnected) redraw();
+    }, 250);
+  };
+
+  // Trackpad pinch (and ctrl + mouse wheel). Not passive: it stops the
+  // browser zooming the whole page instead.
+  scroller.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      // Trackpads send many small steps; a mouse wheel notch is one big one
+      // (or a few "lines"), so cap each step at about a 28% change.
+      const delta = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY;
+      const step = Math.max(-25, Math.min(25, delta));
+      zoomTo(hourHeight * Math.exp(-step * 0.01), e.clientY);
+      finish();
+    },
+    { passive: false },
+  );
+
+  // Two fingers on a touch screen.
+  let pinch: { gap: number; height: number } | null = null;
+  const verticalGap = (touches: TouchList) => Math.max(30, Math.abs(touches[0].clientY - touches[1].clientY));
+  const middle = (touches: TouchList) => (touches[0].clientY + touches[1].clientY) / 2;
+  scroller.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length === 2) pinch = { gap: verticalGap(e.touches), height: hourHeight };
+    },
+    { passive: true },
+  );
+  scroller.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault(); // no page zoom
+      zoomTo(pinch.height * (verticalGap(e.touches) / pinch.gap), middle(e.touches));
+    },
+    { passive: false },
+  );
+  const touchEnd = (e: TouchEvent) => {
+    if (pinch && e.touches.length < 2) {
+      pinch = null;
+      finish();
+    }
+  };
+  scroller.addEventListener("touchend", touchEnd);
+  scroller.addEventListener("touchcancel", touchEnd);
+
+  // Safari on a Mac trackpad sends "gesture" events, not ctrl + wheel. On
+  // touch screens the touch handlers above do the work; these only stop
+  // Safari zooming the page.
+  type GestureEvent = UIEvent & { scale: number; clientY: number };
+  let gestureStart = hourHeight;
+  scroller.addEventListener("gesturestart", (e) => {
+    e.preventDefault();
+    gestureStart = hourHeight;
+  });
+  scroller.addEventListener("gesturechange", (e) => {
+    e.preventDefault();
+    if (pinch) return;
+    const g = e as GestureEvent;
+    zoomTo(gestureStart * g.scale, g.clientY);
+  });
+  scroller.addEventListener("gestureend", (e) => {
+    e.preventDefault();
+    if (!pinch) finish();
+  });
 }
 
 /**

@@ -907,6 +907,8 @@ main.loading > * {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Fingers scroll; a pinch is left to the app (more or fewer hours), not page zoom. */
+  touch-action: pan-x pan-y;
 }
 
 /* Comes to rest on a day, as in Apple's Calendar. */
