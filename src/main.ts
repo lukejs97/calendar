@@ -639,6 +639,17 @@ async function start(): Promise<void> {
     else (await import("./web-bridge")).install();
   }
 
+  // In the app, right-clicking where Minuteman has no menu of its own shows
+  // nothing, rather than the web view's (Reload, Inspect…). Text fields and
+  // selected text keep theirs, for copy and paste.
+  if (isTauri()) {
+    document.addEventListener("contextmenu", (e) => {
+      const target = e.target as Element;
+      if (target.closest("input, textarea, [contenteditable]") || getSelection()?.toString()) return;
+      e.preventDefault();
+    });
+  }
+
   // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
   const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");
   if (window.__MINUTEMAN_FLYOUT__ || flyoutPreview) return (await import("./flyout")).startFlyout();

@@ -1,0 +1,39 @@
+# Publishes the small website in site/ (home page and privacy policy, which
+# Google's OAuth Branding page links to) to GitHub Pages:
+# https://lukejs97.github.io/calendar/
+#
+# One-time setup: Settings → Pages → Build and deployment → Source:
+# "GitHub Actions". Then run this from the Actions tab.
+name: Publish website
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The logo, from the app's own copies.
+      - name: Add the logo
+        run: cp public/favicon.svg public/icon-512.png site/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

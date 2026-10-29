@@ -15,7 +15,7 @@ import {
   timeFormat,
   toDateString,
 } from "../time";
-import { enableCreate } from "./create";
+import { dayButton, enableCreate } from "./create";
 import type { ViewContext } from "./types";
 
 /** Height of one item line in px. Must match --month-line in styles.css. */
@@ -84,7 +84,7 @@ export function renderMonth(root: HTMLElement, ctx: ViewContext): void {
 
     const date = el("button", "month-date", String(day.getDate()));
     date.title = "Show this day";
-    date.addEventListener("click", () => ctx.goTo("day", day));
+    dayButton(date, ctx, day);
     const list = el("div", "month-items");
     cell.append(date, list);
     grid.append(cell);

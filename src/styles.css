@@ -16,6 +16,10 @@
   --on-chrome-muted: #aeb6c8;
   --stripe-red: #c23a41;
   --stripe-ivory: #f3ecdc;
+  /* A touch of gold, like a flag's fringe: on the navy, on red, on ivory. */
+  --gold: #c9a24a;
+  --gold-bright: #f5d06b;
+  --gold-ink: #9a7120;
   --serif: "Libre Caslon Text", "Iowan Old Style", Baskerville, Georgia, serif;
 
   --gutter: 56px;
@@ -47,6 +51,9 @@
     --on-chrome-muted: #8f99ad;
     --stripe-red: #b8323a;
     --stripe-ivory: #d9d0bd;
+    --gold: #b8913f;
+    --gold-bright: #f0c95e;
+    --gold-ink: #d6b25e;
   }
 }
 
@@ -484,6 +491,8 @@ button:disabled {
   right: 0;
   bottom: 0;
   height: 9px;
+  /* A gold fringe between the navy and the stripes. */
+  box-shadow: 0 -2px 0 var(--gold);
   background: linear-gradient(
     var(--stripe-red) 0 3px,
     var(--stripe-ivory) 3px 6px,
@@ -1286,6 +1295,7 @@ main.loading > * {
 .tl-day-header.today .tl-date::before,
 .month-cell.today .month-date::before {
   content: "★";
+  color: var(--gold-bright);
   margin-right: 3px;
   font-size: 0.7em;
   vertical-align: 0.1em;
@@ -1293,7 +1303,7 @@ main.loading > * {
 
 .day.today .day-label::before {
   content: "★ ";
-  color: var(--accent);
+  color: var(--gold-ink);
 }
 
 .tl-allday {
@@ -1847,6 +1857,7 @@ body.detached .fly-close {
 
 .flyout-title {
   margin: 0;
+  color: var(--gold);
   font-family: var(--serif);
   font-size: 20px;
   font-weight: 700;

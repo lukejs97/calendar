@@ -173,40 +173,49 @@ fn due(items: &[AgendaItem], from: DateTime<Local>, now: DateTime<Local>) -> Vec
     alerts
 }
 
-/// Beside the menu bar icon: "Standup in 12 min", "Lunch at 1:00 PM", or
-/// "Standup until 10:15 AM" while one is on. `None` when nothing's coming up
-/// in the next 12 hours.
+/// Beside the menu bar icon: what's next ("Standup in 12 min", "Lunch at
+/// 1:00 PM", "○ Pay rent in 5 min" for a task), or, while an event is on and
+/// nothing else starts before it ends, that one ("Work until 5:00 PM").
+/// `None` when nothing's on or coming up in the next 12 hours.
+///
+/// What starts next wins over what's on: you know you're at work, but not
+/// that a call's coming up during it.
 fn menu_bar_text(items: &[AgendaItem], now: DateTime<Local>) -> Option<String> {
     let times = |item: &AgendaItem| {
         let start = DateTime::parse_from_rfc3339(&item.start).ok()?.with_timezone(&Local);
         let end = item.end.as_deref().and_then(|end| DateTime::parse_from_rfc3339(end).ok());
         Some((start, end.map_or(start, |end| end.with_timezone(&Local))))
     };
+    // Events and tasks at a time of day (not all-day ones, or tasks done).
     let timed = items
         .iter()
-        .filter(|item| item.kind == ItemKind::Event && !item.all_day)
+        .filter(|item| !item.all_day && !item.completed)
         .filter_map(|item| Some((item, times(item)?)));
     let next = timed
         .clone()
         .filter(|(_, (start, _))| *start > now && *start - now <= TimeDelta::hours(12))
         .min_by_key(|(_, (start, _))| *start);
     let ongoing = timed
-        .filter(|(_, (start, end))| *start <= now && *end > now)
+        .filter(|(item, (start, end))| item.kind == ItemKind::Event && *start <= now && *end > now)
         .min_by_key(|(_, (_, end))| *end);
 
     let clock = |t: DateTime<Local>| t.format("%-I:%M %p").to_string();
+    let name = |item: &AgendaItem| match item.kind {
+        ItemKind::Task => format!("○ {}", short(&item.title)),
+        ItemKind::Event => short(&item.title),
+    };
     match (next, ongoing) {
-        // Something on now, and the next one isn't about to start: show this one.
-        (next, Some((item, (_, end)))) if next.is_none_or(|(_, (start, _))| start - now > TimeDelta::minutes(15)) => {
-            Some(format!("{} until {}", short(&item.title), clock(end)))
+        // On now, and nothing else starts before it ends: this one.
+        (next, Some((item, (_, end)))) if next.is_none_or(|(_, (start, _))| start >= end) => {
+            Some(format!("{} until {}", name(item), clock(end)))
         }
         (Some((item, (start, _))), _) => {
             // Rounded up: "in 1 min" until it starts, never "in 0 min".
             let minutes = ((start - now).num_seconds() + 59) / 60;
             Some(match minutes {
-                0 => format!("{} now", short(&item.title)),
-                1..60 => format!("{} in {minutes} min", short(&item.title)),
-                _ => format!("{} at {}", short(&item.title), clock(start)),
+                0 => format!("{} now", name(item)),
+                1..60 => format!("{} in {minutes} min", name(item)),
+                _ => format!("{} at {}", name(item), clock(start)),
             })
         }
         _ => None,
@@ -301,12 +310,23 @@ mod tests {
         };
         assert_eq!(menu_bar_text(&[event("Standup", 12, 27)], now).unwrap(), "Standup in 12 min");
         assert!(menu_bar_text(&[event("Lunch", 90, 150)], now).unwrap().starts_with("Lunch at "));
-        // On now, and the next one is an hour away: the one that's on.
+        // On now, and the next one starts after it ends: the one that's on.
         let busy = [event("Workshop", -30, 60), event("Lunch", 90, 150)];
         assert!(menu_bar_text(&busy, now).unwrap().starts_with("Workshop until "));
-        // ...but one starting in 10 minutes takes over.
+        // ...but one starting before it ends takes over.
         let soon = [event("Workshop", -30, 60), event("Call with a very long name indeed", 10, 40)];
         assert_eq!(menu_bar_text(&soon, now).unwrap(), "Call with a very long… in 10 min");
+        // Tasks at a time count too, marked as tasks; done ones don't.
+        let task = |title: &str, start: i64, completed: bool| AgendaItem {
+            kind: ItemKind::Task,
+            end: None,
+            completed,
+            ..event(title, start, start)
+        };
+        let work = [event("Work", -60, 480), task("Test", 120, false)];
+        assert!(menu_bar_text(&work, now).unwrap().starts_with("○ Test at "));
+        let done = [event("Work", -60, 480), task("Test", 120, true)];
+        assert!(menu_bar_text(&done, now).unwrap().starts_with("Work until "));
         assert!(menu_bar_text(&[event("Tomorrow", 60 * 20, 60 * 21)], now).is_none());
     }
 

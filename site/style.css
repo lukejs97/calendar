@@ -1,0 +1,120 @@
+/* Minuteman's home and privacy pages (GitHub Pages). Colours from the app. */
+:root {
+  --bg: #fbf8f1;
+  --text: #1a2338;
+  --muted: #6f6a5e;
+  --chrome: #1b2c4c;
+  --on-chrome: #f6f0e2;
+  --red: #c23a41;
+  --ivory: #f3ecdc;
+  --gold: #c9a24a;
+  --link: #a12d34;
+  --serif: "Iowan Old Style", Baskerville, Georgia, serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101a2c;
+    --text: #f1eadb;
+    --muted: #9aa3b5;
+    --chrome: #0b1322;
+    --ivory: #d9d0bd;
+    --link: #f08a8f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+header {
+  position: relative;
+  padding: 28px 16px 37px;
+  color: var(--on-chrome);
+  background: var(--chrome);
+}
+
+/* The flag's stripes under the header, with a gold fringe above them. */
+header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9px;
+  box-shadow: 0 -2px 0 var(--gold);
+  background: linear-gradient(var(--red) 0 3px, var(--ivory) 3px 6px, var(--red) 6px 9px);
+}
+
+header .inner,
+main {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+header .inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+header img {
+  width: 52px;
+  height: 52px;
+}
+
+header a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+header p {
+  margin: 2px 0 0;
+  color: var(--gold);
+}
+
+main {
+  padding: 24px 16px 48px;
+}
+
+h2 {
+  margin: 32px 0 8px;
+  font-family: var(--serif);
+  font-size: 22px;
+}
+
+a {
+  color: var(--link);
+}
+
+/* Long addresses and paths wrap on a phone rather than widen the page. */
+main {
+  overflow-wrap: anywhere;
+}
+
+.muted,
+footer {
+  color: var(--muted);
+}
+
+footer {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  font-size: 14px;
+}

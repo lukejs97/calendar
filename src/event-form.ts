@@ -426,11 +426,10 @@ class Form {
     this.showTaskRepeat();
   }
 
-  /** A new task's due date (and time) from the day chosen, if any. */
+  /** A new task's due date (and time): the day chosen, or else today. */
   private fillDueFromAt(): void {
-    if (!this.at) return;
-    this.dueDate.value = toDateString(this.at.start);
-    this.dueTime.value = this.at.allDay ? "" : timeString(this.at.start);
+    this.dueDate.value = toDateString(this.at ? this.at.start : new Date());
+    this.dueTime.value = this.at && !this.at.allDay ? timeString(this.at.start) : "";
   }
 
   private fillFromItem(item: AgendaItem): void {
@@ -495,11 +494,11 @@ class Form {
       if (!this.touched.has("title")) this.taskName.value = parsed.title;
       if (!this.touched.has("due")) {
         this.taskRepeat = parsed.repeat;
-        if (parsed.due || !this.at) {
-          this.dueDate.value = parsed.due ? toDateString(parsed.due.start) : "";
-          this.dueTime.value = parsed.due && !parsed.due.allDay ? timeString(parsed.due.start) : "";
+        if (parsed.due) {
+          this.dueDate.value = toDateString(parsed.due.start);
+          this.dueTime.value = parsed.due.allDay ? "" : timeString(parsed.due.start);
         } else {
-          this.fillDueFromAt(); // no date in the sentence: the day chosen
+          this.fillDueFromAt(); // no date in the sentence: the day chosen, or today
         }
         this.showTaskRepeat();
       }

@@ -119,9 +119,21 @@ Workaround: stay in **Testing** and add yourself as a test user:
    **Settings → Google accounts**.
 
 Try **Publish app** again now and then. Once it works, go to **Settings → Google
-accounts → Add account** and pick each account again, to get tokens without the 7-day limit. Adding an **Application home page** and
-**Privacy policy link** on Branding (on a domain you control) may also unlock
-it, but nobody has confirmed that yet.
+accounts → Add account** and pick each account again, to get tokens without the 7-day limit.
+
+Filling in Branding's **App domain** section may unlock it (some people report
+that, though it isn't confirmed). The repo's `site/` folder is a small home page
+and privacy policy for that, published with GitHub Pages:
+
+1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub
+   Actions**. Then **Actions → Publish website → Run workflow**. The pages are
+   at `https://lukejs97.github.io/calendar/` (the repo's name is the last part).
+2. On Branding, under **App domain**: **Application home page**
+   `https://lukejs97.github.io/calendar/`, **Application privacy policy link**
+   `https://lukejs97.github.io/calendar/privacy.html`; leave Terms of service
+   empty. Under **Authorized domains**, add `lukejs97.github.io`. **Save**.
+3. Hover over the greyed-out **Publish app** button on **Audience**: its tooltip
+   may say what's still missing.
 
 You do **not** need to submit the app for Google's verification. Unverified
 production apps work. Google limits them to 100 users in total and shows a

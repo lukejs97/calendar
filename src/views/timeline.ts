@@ -26,7 +26,7 @@ import {
   overlaps,
   timeFormat,
 } from "../time";
-import { enableCreate } from "./create";
+import { dayButton, enableCreate } from "./create";
 import { enableDayDrag } from "./drag";
 import type { ViewContext } from "./types";
 
@@ -126,7 +126,7 @@ function headerRow(ctx: ViewContext, days: Date[]): HTMLElement {
     if (isSameDay(day, ctx.now)) cell.classList.add("today");
     cell.append(el("span", "tl-weekday", weekdayFormat.format(day)), el("span", "tl-date", String(day.getDate())));
     cell.title = "Show this day";
-    cell.addEventListener("click", () => ctx.goTo("day", day));
+    dayButton(cell, ctx, day);
     row.append(cell);
   }
   return row;
