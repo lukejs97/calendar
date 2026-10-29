@@ -115,11 +115,13 @@ for the menu bar window. How the code is organized:
 
 ## Where things are stored
 
-- **Refresh tokens:** one per Google account, together in one entry in your OS
-  keychain under the service `com.mycalendar.app`. On Windows that's Credential
-  Manager → Windows Credentials (`google-accounts.com.mycalendar.app`). On
-  macOS it's Keychain Access. (Older versions used `google-refresh-token`; the
-  app moves it over the first time it runs.)
+- **Refresh tokens** (one per Google account) **and the Todoist token:** in
+  your OS keychain under the service `com.mycalendar.app`. On Windows that's
+  Credential Manager → Windows Credentials (`google-accounts.com.mycalendar.app`
+  and `todoist-token.com.mycalendar.app`). On macOS, Keychain Access, all in one
+  item, `secrets`, so macOS asks for your password once after an update rather
+  than once per item; older versions' separate items are moved into it the
+  first time.
 - **Access tokens:** in memory only.
 - **Removing an account** (Settings → Google accounts → Remove) deletes its token from the
   keychain and asks Google to revoke it.
