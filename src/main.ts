@@ -206,7 +206,7 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
 }
 
 function updateToolbar(): void {
-  // The year in a span of its own, coloured apart from the month.
+  // The year in a span of its own, so it can be styled apart from the month.
   const parts = VIEWS[state.view].title(state.anchor).split(/(\d{4})/);
   title.replaceChildren(...parts.map((part, i) => (i % 2 ? el("span", "title-year", part) : part)));
   title.title = "Go to today (T)";

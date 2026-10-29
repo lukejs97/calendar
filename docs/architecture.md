@@ -189,7 +189,10 @@ there with `slideTimeline` when it's among the days drawn.
   and the offline cache filters them too. Settings → Calendars lists every
   calendar (`google_calendars`) and flips one (`set_google_calendar_shown`).
 - **Weather** (`weather.ts`): Open-Meteo's forecast (16 days, plus the past
-  7) for a place chosen in Settings, found with Open-Meteo's geocoding;
+  7) for a place chosen in Settings, found with Open-Meteo's geocoding, or
+  the current location, found again at each fetch (the Mac app asks Core
+  Location through `current_location` in `travel.rs`; elsewhere the page
+  asks the browser, `navigator.geolocation`);
   fetched by the page itself (the CSPs in `tauri.conf.json` and
   `web/src/index.ts` allow its two hosts), kept in local storage and fetched
   again after 3 hours. The views ask `weatherOn(day)` when they draw.

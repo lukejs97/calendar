@@ -37,7 +37,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Choose calendars** (Settings → Calendars): hide any of your Google
   calendars; their events stay out of every view, search, alerts and the menu
   bar.
-- **Weather** (Settings → Weather): pick a town and each day shows its
+- **Weather** (Settings → Weather): use your current location, or pick a
+  town, and each day shows its
   forecast (icon, high and low) for about two weeks ahead, from
   [Open-Meteo](https://open-meteo.com/), free and without an account.
 - **Search** (magnifier, `/` or Cmd/Ctrl+F): events and tasks from a year back

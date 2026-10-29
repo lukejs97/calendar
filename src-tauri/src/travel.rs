@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use chrono::{DateTime, Local};
@@ -92,6 +92,38 @@ pub fn stop(app: &AppHandle) {
             }
         });
     });
+}
+
+/// Where the Mac is (to about 100 m), for the weather: latitude and
+/// longitude. Asks for permission the first time. `None` if it isn't
+/// allowed, or isn't known yet after a while.
+pub async fn current_location(app: &AppHandle) -> Option<(f64, f64)> {
+    start(app);
+    let started = Instant::now();
+    let here = loop {
+        let here = on_main(app, |tx| {
+            let here = MANAGER.with(|manager| {
+                let manager = manager.borrow();
+                let location = unsafe { manager.as_ref()?.location()? };
+                Some(unsafe { location.coordinate() })
+            });
+            let _ = tx.send(here.map(|c| (c.latitude, c.longitude)));
+        })
+        .await
+        .flatten();
+        let waited = started.elapsed();
+        // While macOS is asking you, wait longer for an answer.
+        let patience = if access() == Access::NotAsked { 90 } else { 20 };
+        if here.is_some() || access() == Access::Denied || waited > Duration::from_secs(patience) {
+            break here;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    // Keep following it only for time-to-leave alerts.
+    if !crate::prefs::get().time_to_leave && access() != Access::NotAsked {
+        stop(app);
+    }
+    here
 }
 
 /// Minutes to drive from here to `place`, arriving at `arrive`, as Apple Maps

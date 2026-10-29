@@ -13,10 +13,10 @@
   <key>NSRemindersUsageDescription</key>
   <string>Minuteman shows your reminders alongside your events, and lets you tick them off.</string>
   <key>NSLocationUsageDescription</key>
-  <string>Minuteman works out the travel time to your events, to tell you when it's time to leave.</string>
+  <string>Minuteman shows the weather where you are, and works out the travel time to your events to tell you when it's time to leave.</string>
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>Minuteman works out the travel time to your events, to tell you when it's time to leave.</string>
+  <string>Minuteman shows the weather where you are, and works out the travel time to your events to tell you when it's time to leave.</string>
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-  <string>Minuteman works out the travel time to your events, to tell you when it's time to leave, also while its window is closed.</string>
+  <string>Minuteman shows the weather where you are, and works out the travel time to your events to tell you when it's time to leave, also while its window is closed.</string>
 </dict>
 </plist>

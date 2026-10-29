@@ -2,6 +2,8 @@
 // the day's high and low, for a place chosen in Settings. Kept on this device
 // (local storage), like the multi-day view's days; the menu bar window shares
 // it with the main window.
+import { isTauri } from "@tauri-apps/api/core";
+import { currentLocation } from "./api";
 import { el } from "./dom";
 import { toDateString } from "./time";
 
@@ -21,6 +23,8 @@ export interface Place {
   detail: string;
   latitude: number;
   longitude: number;
+  /** Wherever you are: located again each time the forecast is fetched. */
+  current?: boolean;
 }
 
 export interface WeatherSettings {
@@ -61,12 +65,55 @@ export function weatherSettings(): WeatherSettings {
 }
 
 export function setWeatherSettings(settings: WeatherSettings): void {
+  saveSettings(settings);
+  forecast = null;
+}
+
+function saveSettings(settings: WeatherSettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch {
     // Then it lasts until the app closes.
   }
-  forecast = null;
+}
+
+const isMacApp = () => isTauri() && /Macintosh|Mac OS X/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent);
+
+/**
+ * Where you are now, to about a kilometre: from the Mac's location in the
+ * Mac app, otherwise from the browser (which asks you the first time).
+ */
+export async function locate(): Promise<Place> {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  let here: { latitude: number; longitude: number };
+  if (isMacApp()) {
+    const found = await currentLocation();
+    if (!found) throw new Error("Allow Minuteman in System Settings → Privacy & Security → Location Services.");
+    here = found;
+  } else {
+    if (!navigator.geolocation) throw new Error("This device can't share its location.");
+    here = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(position.coords),
+        (error) =>
+          reject(
+            new Error(
+              error.code === error.PERMISSION_DENIED
+                ? "Location isn't allowed for Minuteman. Allow it in your browser's or system's settings."
+                : "Couldn't find your location.",
+            ),
+          ),
+        { timeout: 20_000, maximumAge: 30 * 60 * 1000 },
+      ),
+    );
+  }
+  return {
+    name: "Current location",
+    detail: "",
+    latitude: round(here.latitude),
+    longitude: round(here.longitude),
+    current: true,
+  };
 }
 
 /** Places matching `name` ("Greer", "Paris, France"), for choosing one. */
@@ -113,11 +160,11 @@ const keyFor = (settings: WeatherSettings) =>
  */
 export function refreshWeather(): Promise<boolean> {
   const settings = weatherSettings();
-  const key = keyFor(settings);
   if (!settings.place) return Promise.resolve(false);
   forecast ??= savedForecast();
-  if (forecast?.key === key && Date.now() - forecast.fetchedAt < REFRESH_MS) return Promise.resolve(false);
-  fetching ??= fetchForecast(settings, key)
+  if (forecast?.key === keyFor(settings) && Date.now() - forecast.fetchedAt < REFRESH_MS) return Promise.resolve(false);
+  fetching ??= whereNow(settings)
+    .then((now) => fetchForecast(now, keyFor(now)))
     .then((fresh) => {
       forecast = fresh;
       try {
@@ -132,6 +179,14 @@ export function refreshWeather(): Promise<boolean> {
       fetching = null;
     });
   return fetching;
+}
+
+/** `settings`, with the current location found again if that's the place. */
+async function whereNow(settings: WeatherSettings): Promise<WeatherSettings> {
+  if (!settings.place?.current) return settings;
+  const now = { ...settings, place: await locate() };
+  saveSettings(now);
+  return now;
 }
 
 function savedForecast(): SavedForecast | null {

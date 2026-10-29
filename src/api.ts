@@ -270,6 +270,8 @@ export const appleRequestAccess = (kind: "calendar" | "reminders") =>
 export const appleCalendars = () => invoke<AppleCalendar[]>("apple_calendars");
 /** Mac only; null elsewhere. */
 export const locationAccess = () => invoke<Access | null>("location_access");
+/** Mac only: where the Mac is, for the weather; null if not allowed or not known. */
+export const currentLocation = () => invoke<{ latitude: number; longitude: number } | null>("current_location");
 
 function isAppError(e: unknown): e is AppError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;

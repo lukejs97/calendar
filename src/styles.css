@@ -135,11 +135,6 @@ button:disabled {
   letter-spacing: 0.01em;
 }
 
-/* The month in gold, the year in red light enough to read on the navy. */
-.title-year {
-  color: #ff8a8f;
-}
-
 /* The month title is also the "go to today" button; it looks like a heading. */
 .title-button {
   padding: 0;
@@ -1251,7 +1246,17 @@ main.loading > * {
   white-space: nowrap;
 }
 
-/* Settings → Weather: the search box, and the places found. */
+/* "‹ Settings" at the top of Settings' own screens. */
+.settings-back {
+  margin: -6px 0 2px -8px;
+  font-size: 14px;
+}
+
+/* Settings → Weather: "Use current location", the search box, and the places found. */
+.weather-here {
+  margin-top: 4px;
+}
+
 .weather-search {
   display: flex;
   gap: 8px;

@@ -23,7 +23,7 @@ import {
 } from "./api";
 import { el } from "./dom";
 import { DAY_COUNTS, multiDayCount, setMultiDayCount } from "./preferences";
-import { type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
+import { locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
@@ -55,24 +55,26 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
 
   const title = el("h2", undefined, "Settings");
   title.id = "settings-title";
+  /** Opens one of Settings' own screens in place of this one; it can come back here. */
+  const openScreen = (open: (back: () => void) => unknown) => {
+    dialog.close();
+    void open(() => void openSettings(actions));
+  };
 
   // Google accounts and Todoist open their own dialogs, in place of this one.
   const accountsNote = el("span", "settings-note", "…");
   const accounts = el("button", "pill-button", "Manage…");
   accounts.addEventListener("click", () => {
-    dialog.close();
-    void openAccountsSettings(actions.accountsChanged);
+    openScreen((back) => openAccountsSettings(actions.accountsChanged, back));
   });
   const calendars = el("button", "pill-button", "Choose…");
   calendars.addEventListener("click", () => {
-    dialog.close();
-    void openGoogleCalendars(actions);
+    openScreen((back) => openGoogleCalendars(actions, back));
   });
   const todoistNote = el("span", "settings-note", "…");
   const todoist = el("button", "pill-button", "Set up…");
   todoist.addEventListener("click", () => {
-    dialog.close();
-    void openTodoistSettings(actions.todoistChanged);
+    openScreen((back) => openTodoistSettings(actions.todoistChanged, back));
   });
 
   const days = el("select", "text-input settings-select");
@@ -87,8 +89,7 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   const weather = weatherSettings();
   const weatherButton = el("button", "pill-button", weather.place ? "Change…" : "Set up…");
   weatherButton.addEventListener("click", () => {
-    dialog.close();
-    openWeatherSettings(actions);
+    openScreen((back) => openWeatherSettings(actions, back));
   });
   const weatherNote = el("span", "settings-note", weather.place ? weather.place.name : "Off");
 
@@ -111,7 +112,7 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
   // (To preview them in a browser during `npm run dev`, add ?desktop.)
   const desktopPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("desktop");
-  if ((isTauri() || desktopPreview) && !isPhone()) void addDesktopRows(rows, actions);
+  if ((isTauri() || desktopPreview) && !isPhone()) void addDesktopRows(rows, actions, openScreen);
 
   const close = el("button", "primary-button", "Done");
   close.addEventListener("click", () => dialog.close());
@@ -129,7 +130,11 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
 }
 
 /** The desktop app's own rows, once its settings have loaded. */
-async function addDesktopRows(rows: HTMLElement, actions: SettingsActions): Promise<void> {
+async function addDesktopRows(
+  rows: HTMLElement,
+  actions: SettingsActions,
+  openScreen: (open: (back: () => void) => unknown) => void,
+): Promise<void> {
   let prefs: Preferences;
   try {
     prefs = await getPreferences();
@@ -168,7 +173,7 @@ async function addDesktopRows(rows: HTMLElement, actions: SettingsActions): Prom
   const status: AppleStatus | null = await appleStatus().catch(() => null);
   if (!status) return;
   const choose = el("button", "link-button", "Choose calendars…");
-  choose.addEventListener("click", () => void openAppleCalendars(actions));
+  choose.addEventListener("click", () => openScreen((back) => openAppleCalendars(actions, back)));
   const updateChoose = () => {
     choose.hidden = !(prefs.appleCalendar || prefs.appleReminders);
   };
@@ -215,7 +220,7 @@ function toggle(
 }
 
 /** Choose the place to show the weather for (or turn it off), and °F or °C. */
-function openWeatherSettings(actions: SettingsActions): void {
+function openWeatherSettings(actions: SettingsActions, back?: () => void): void {
   const dialog = el("dialog", "dialog settings");
   dialog.setAttribute("aria-labelledby", "weather-title");
   document.body.append(dialog);
@@ -237,7 +242,9 @@ function openWeatherSettings(actions: SettingsActions): void {
   const off = el("button", "text-button danger", "Turn off");
   off.addEventListener("click", () => save({ place: null }));
   const showCurrent = () => {
-    current.textContent = settings.place
+    current.textContent = settings.place?.current
+      ? "Showing the weather where you are."
+      : settings.place
       ? `Showing the weather for ${settings.place.name}${settings.place.detail ? `, ${settings.place.detail}` : ""}.`
       : "Choose a place to show its weather on each day (from Open-Meteo).";
     off.hidden = !settings.place;
@@ -250,9 +257,23 @@ function openWeatherSettings(actions: SettingsActions): void {
   unit.value = settings.unit;
   unit.addEventListener("change", () => save({ unit: unit.value as Unit }));
 
+  const here = el("button", "pill-button weather-here", "Use current location");
+  here.addEventListener("click", async () => {
+    here.disabled = true;
+    results.replaceChildren(el("p", "settings-note", "Finding where you are…"));
+    try {
+      save({ place: await locate() });
+      results.replaceChildren();
+    } catch (err) {
+      results.replaceChildren(el("p", "error", errorMessage(err)));
+    } finally {
+      here.disabled = false;
+    }
+  });
+
   const search = el("input", "text-input");
   search.type = "search";
-  search.placeholder = "Town or city";
+  search.placeholder = "Or a town or city";
   search.setAttribute("aria-label", "Town or city");
   const results = el("div", "settings-rows weather-places");
   const form = el("form", "weather-search");
@@ -291,13 +312,13 @@ function openWeatherSettings(actions: SettingsActions): void {
   close.addEventListener("click", () => dialog.close());
   const unitRow = el("div", "settings-rows");
   unitRow.append(settingsRow("Temperature", el("span", "settings-note", "Fahrenheit or Celsius"), unit));
-  dialog.append(title, current, form, results, unitRow, buttonRow(off, close));
+  dialog.append(...backTo(dialog, back), title, current, here, form, results, unitRow, buttonRow(off, close));
   dialog.showModal();
   search.focus();
 }
 
 /** Choose which of each Google account's calendars to show. */
-async function openGoogleCalendars(actions: SettingsActions): Promise<void> {
+async function openGoogleCalendars(actions: SettingsActions, back?: () => void): Promise<void> {
   const dialog = el("dialog", "dialog settings");
   dialog.setAttribute("aria-labelledby", "google-calendars-title");
   document.body.append(dialog);
@@ -312,7 +333,7 @@ async function openGoogleCalendars(actions: SettingsActions): Promise<void> {
   list.append(el("p", "settings-note", "Loading…"));
   const close = el("button", "primary-button", "Done");
   close.addEventListener("click", () => dialog.close());
-  dialog.append(title, help, list, buttonRow(close));
+  dialog.append(...backTo(dialog, back), title, help, list, buttonRow(close));
   dialog.showModal();
 
   try {
@@ -348,7 +369,7 @@ async function openGoogleCalendars(actions: SettingsActions): Promise<void> {
 }
 
 /** Choose which of the Calendar app's calendars and Reminders' lists to show. */
-async function openAppleCalendars(actions: SettingsActions): Promise<void> {
+async function openAppleCalendars(actions: SettingsActions, back?: () => void): Promise<void> {
   const dialog = el("dialog", "dialog settings");
   dialog.setAttribute("aria-labelledby", "apple-calendars-title");
   document.body.append(dialog);
@@ -363,7 +384,7 @@ async function openAppleCalendars(actions: SettingsActions): Promise<void> {
   const list = el("div", "settings-rows");
   const close = el("button", "primary-button", "Done");
   close.addEventListener("click", () => dialog.close());
-  dialog.append(title, help, list, buttonRow(close));
+  dialog.append(...backTo(dialog, back), title, help, list, buttonRow(close));
   dialog.showModal();
 
   try {
@@ -393,6 +414,17 @@ async function openAppleCalendars(actions: SettingsActions): Promise<void> {
   }
 }
 
+/** "‹ Settings", back to Settings from one of its screens (if opened from there). */
+function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
+  if (!back) return [];
+  const button = el("button", "text-button settings-back", "‹ Settings");
+  button.addEventListener("click", () => {
+    dialog.close();
+    back();
+  });
+  return [button];
+}
+
 function settingsRow(name: string, note: HTMLElement, control: HTMLElement): HTMLElement {
   const row = el("div", "settings-row");
   const text = el("div", "settings-text");
@@ -405,7 +437,7 @@ function settingsRow(name: string, note: HTMLElement, control: HTMLElement): HTM
  * Opens the Google accounts dialog: add another account, or remove one.
  * `onChange` runs after either, saying whether any account is left.
  */
-export async function openAccountsSettings(onChange: (signedIn: boolean) => void): Promise<void> {
+export async function openAccountsSettings(onChange: (signedIn: boolean) => void, back?: () => void): Promise<void> {
   const dialog = el("dialog", "dialog");
   dialog.setAttribute("aria-labelledby", "accounts-title");
   document.body.append(dialog);
@@ -465,6 +497,7 @@ export async function openAccountsSettings(onChange: (signedIn: boolean) => void
   });
 
   dialog.append(
+    ...backTo(dialog, back),
     title,
     el("p", undefined, "Events from all your accounts appear together. To add one, sign in to it in your browser."),
     list,
@@ -483,7 +516,7 @@ export async function openAccountsSettings(onChange: (signedIn: boolean) => void
  * Opens the Todoist dialog: connect with a personal API token, or disconnect.
  * `onChange` runs after either.
  */
-export async function openTodoistSettings(onChange: () => void): Promise<void> {
+export async function openTodoistSettings(onChange: () => void, back?: () => void): Promise<void> {
   const dialog = el("dialog", "dialog");
   dialog.setAttribute("aria-labelledby", "todoist-title");
   document.body.append(dialog);
@@ -504,6 +537,7 @@ export async function openTodoistSettings(onChange: () => void): Promise<void> {
       onChange();
     });
     dialog.append(
+      ...backTo(dialog, back),
       title,
       el("p", undefined, "Connected. Tasks with a due date appear in your calendar, and you can tick them off here."),
       buttonRow(disconnect, close),
@@ -540,7 +574,7 @@ export async function openTodoistSettings(onChange: () => void): Promise<void> {
       }
     });
     form.append(input, error, buttonRow(close, connect));
-    dialog.append(title, help, form);
+    dialog.append(...backTo(dialog, back), title, help, form);
   }
 
   dialog.showModal();

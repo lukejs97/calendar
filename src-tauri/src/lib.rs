@@ -351,6 +351,23 @@ async fn apple_calendars(state: State<'_, AppState>) -> Result<serde_json::Value
     }
 }
 
+/// Mac only: where the Mac is, for the weather (`{latitude, longitude}`), or
+/// `null` if that isn't allowed or known. Elsewhere `null`: the page asks
+/// the browser instead.
+#[tauri::command]
+async fn current_location(app: AppHandle) -> Option<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    {
+        let (latitude, longitude) = travel::current_location(&app).await?;
+        Some(serde_json::json!({ "latitude": latitude, "longitude": longitude }))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
 /// Mac only: whether Minuteman may use the Mac's location, for time-to-leave
 /// alerts ("notAsked", "granted" or "denied"; `null` elsewhere).
 #[tauri::command]
@@ -517,6 +534,7 @@ pub fn run() {
             apple_request_access,
             apple_calendars,
             location_access,
+            current_location,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
