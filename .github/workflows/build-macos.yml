@@ -8,9 +8,9 @@
 # GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, the same values as in src-tauri/.env.
 #
 # Optional third secret, MAC_SIGNING_CERT: your own signing certificate (see
-# docs/mac-signing.md). Signed with it, every build is the same app to macOS,
-# so "Always Allow" for its keychain items lasts across updates. Without it,
-# builds are signed ad hoc and macOS asks again after each update.
+# docs/mac-signing.md). Signed with it, every build is the same app to macOS's
+# privacy permissions (Calendars, Reminders, Location), so they last across
+# updates. (The keychain still asks after updates: that needs Apple's Team ID.)
 
 name: Build macOS app
 
@@ -57,7 +57,7 @@ jobs:
           MAC_SIGNING_CERT: ${{ secrets.MAC_SIGNING_CERT }}
         run: |
           if [ -z "$MAC_SIGNING_CERT" ]; then
-            echo "No MAC_SIGNING_CERT secret: signing ad hoc (macOS will ask for keychain access after updates)."
+            echo "No MAC_SIGNING_CERT secret: signing ad hoc (Calendar and Location permissions reset with each update)."
             exit 0
           fi
           # A keychain of its own for this run, holding just the certificate.
@@ -79,6 +79,19 @@ jobs:
       - name: Build
         run: npm run tauri build -- --target universal-apple-darwin --bundles dmg
 
+      # Tauri signs the .dmg as well as the app. Signed with our own (not an
+      # Apple-issued) certificate, macOS would want "Open Anyway" for the disk
+      # image too; unsigned, it just opens. Only the app inside needs signing.
+      - name: Unsign the disk image
+        run: |
+          for dmg in src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg; do
+            if codesign --display "$dmg" 2> /dev/null; then
+              codesign --remove-signature "$dmg" \
+                || { hdiutil convert "$dmg" -format UDZO -o "$dmg.unsigned.dmg" > /dev/null && mv "$dmg.unsigned.dmg" "$dmg"; }
+            fi
+            codesign --display "$dmg" 2>&1 | head -1
+          done
+
       - name: Show how the app is signed
         run: |
           # The app as installed: inside the .dmg.
@@ -91,7 +104,7 @@ jobs:
             codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
             codesign --display --requirements - "$app" 2>&1 | grep designated || true
           else
-            echo "Not signed with a certificate: macOS will ask for keychain access after updates (docs/mac-signing.md)."
+            echo "Not signed with a certificate (docs/mac-signing.md)."
           fi
           hdiutil detach "$mount" > /dev/null
 

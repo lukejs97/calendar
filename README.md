@@ -72,8 +72,8 @@ tools needed.
    Settings → Secrets and variables → Actions → **New repository secret**: add
    `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 2. Recommended, once: add your own signing certificate as a third secret
-   ([docs/mac-signing.md](docs/mac-signing.md)), so updates don't ask for your
-   password again.
+   ([docs/mac-signing.md](docs/mac-signing.md)), so Calendar, Reminders and
+   Location permissions last across updates.
 3. Actions tab → **Build macOS app** → **Run workflow** (about 10 minutes).
 4. Open the finished run, download **Minuteman-macOS** under Artifacts, unzip
    it, open the `.dmg` and drag Minuteman to Applications, replacing the old
