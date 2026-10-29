@@ -25,7 +25,9 @@
   font-size: 15px;
   line-height: 1.4;
   color: var(--text);
-  background: var(--bg);
+  /* Navy behind the page (which covers it everywhere): on an iPhone's home
+     screen, iOS 26 colours the status bar from it. */
+  background: var(--chrome);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -265,10 +267,10 @@ button:disabled {
     position: fixed;
     /* Above the timeline's sticky hours and day headers. */
     z-index: 20;
-    left: calc(14px + env(safe-area-inset-left));
-    right: calc(14px + env(safe-area-inset-right));
-    /* As far from the bottom as from the sides, home bar or not. */
-    bottom: 14px;
+    left: calc(24px + env(safe-area-inset-left));
+    right: calc(24px + env(safe-area-inset-right));
+    /* As far from the bottom as from the sides (as in Fantastical), home bar or not. */
+    bottom: 24px;
     align-items: center;
     justify-content: space-between;
     /* Taps between the buttons reach the calendar. */
@@ -353,7 +355,7 @@ button:disabled {
      what scrolls gets this much room at its end, so its last hour, day or
      month can come up clear of them. */
   body {
-    --dock-space: 78px;
+    --dock-space: 88px;
     padding-bottom: 0;
   }
 
