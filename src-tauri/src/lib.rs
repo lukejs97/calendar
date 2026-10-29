@@ -351,6 +351,38 @@ async fn apple_calendars(state: State<'_, AppState>) -> Result<serde_json::Value
     }
 }
 
+/// Whether Minuteman opens when you log in (desktop; `null` elsewhere).
+#[tauri::command]
+fn open_at_login(app: AppHandle) -> Option<bool> {
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        app.autolaunch().is_enabled().ok()
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Turns opening at login on or off (desktop).
+#[tauri::command]
+fn set_open_at_login(app: AppHandle, enabled: bool) -> Result<()> {
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let launcher = app.autolaunch();
+        let changed = if enabled { launcher.enable() } else { launcher.disable() };
+        changed.map_err(|e| AppError::Config(format!("Couldn't change opening at login: {e}")))
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, enabled);
+        Err(AppError::Config("Opening at login is only on the desktop".into()))
+    }
+}
+
 /// Mac only: where the Mac is, for the weather (`{latitude, longitude}`), or
 /// `null` if that isn't allowed or known. Elsewhere `null`: the page asks
 /// the browser instead.
@@ -478,7 +510,12 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Opening at login starts it in the menu bar, its window closed.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![desktop::OPENED_AT_LOGIN]),
+        ));
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
@@ -535,6 +572,8 @@ pub fn run() {
             apple_calendars,
             location_access,
             current_location,
+            open_at_login,
+            set_open_at_login,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

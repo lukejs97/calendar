@@ -21,6 +21,8 @@ static MENU_BAR_TEXT: Mutex<Option<String>> = Mutex::new(None);
 
 /// The menu bar window's label.
 pub const FLYOUT: &str = "flyout";
+/// Passed when Minuteman opens at login: start in the menu bar, the window closed.
+pub const OPENED_AT_LOGIN: &str = "--hidden";
 /// Opens New event from anywhere: ⌥⌘N on a Mac, Ctrl+Alt+N on Windows.
 pub const QUICK_ADD_SHORTCUT: &str = "CommandOrControl+Alt+N";
 
@@ -55,6 +57,9 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     // Closing the main window keeps the app (and its alerts) running in the
     // menu bar; Quit is in the icon's menu, or ⌘Q.
     if let Some(main) = app.get_webview_window("main") {
+        if std::env::args().any(|arg| arg == OPENED_AT_LOGIN) {
+            let _ = main.hide();
+        }
         let window = main.clone();
         main.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

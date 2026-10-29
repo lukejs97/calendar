@@ -176,6 +176,7 @@ export function install(): void {
   const appleAccess = { calendar: "notAsked", reminders: "notAsked" };
   // Google calendars hidden in Settings (by name here; the samples have no real IDs).
   const hiddenCalendars = new Set<string>();
+  let openAtLoginNow = false;
 
   // The weather (src/weather.ts) comes from Open-Meteo; answer for it here.
   const realFetch = window.fetch.bind(window);
@@ -298,6 +299,11 @@ export function install(): void {
           calendars: i === 0 ? calendars.map(({ id, name, color, primary }) => ({ id, name, color, primary })) : [],
           error: null,
         }));
+      case "open_at_login":
+        return openAtLoginNow;
+      case "set_open_at_login":
+        openAtLoginNow = (args as { enabled: boolean }).enabled;
+        return null;
       case "google_calendars":
         return accounts.map((email, i) => ({
           email,

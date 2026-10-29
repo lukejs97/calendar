@@ -270,6 +270,9 @@ export const appleRequestAccess = (kind: "calendar" | "reminders") =>
 export const appleCalendars = () => invoke<AppleCalendar[]>("apple_calendars");
 /** Mac only; null elsewhere. */
 export const locationAccess = () => invoke<Access | null>("location_access");
+/** Whether Minuteman opens when you log in (desktop; null elsewhere). */
+export const openAtLogin = () => invoke<boolean | null>("open_at_login");
+export const setOpenAtLogin = (enabled: boolean) => invoke<void>("set_open_at_login", { enabled });
 /** Mac only: where the Mac is, for the weather; null if not allowed or not known. */
 export const currentLocation = () => invoke<{ latitude: number; longitude: number } | null>("current_location");
 

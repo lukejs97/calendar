@@ -9,6 +9,8 @@ import {
   getPreferences,
   googleAccounts,
   googleCalendars,
+  openAtLogin,
+  setOpenAtLogin,
   locationAccess,
   setPreferences,
   type Access,
@@ -145,6 +147,21 @@ async function addDesktopRows(
     prefs = { ...prefs, ...change };
     await setPreferences(prefs);
   };
+
+  // Opening at login: it starts in the menu bar, its window closed.
+  const atLogin = await openAtLogin().catch(() => null);
+  if (atLogin !== null) {
+    const loginNote = el("span", "settings-note", isMac() ? "Starts in the menu bar" : "Starts in the notification area");
+    const login = toggle("Open at login", atLogin, async (on, box) => {
+      try {
+        await setOpenAtLogin(on);
+      } catch (e) {
+        box.checked = !on;
+        loginNote.textContent = errorMessage(e);
+      }
+    });
+    rows.append(settingsRow("Open at login", loginNote, login));
+  }
 
   const menuBar = toggle("Show the next event in the menu bar", prefs.menuBarNext, (on) => save({ menuBarNext: on }));
   rows.append(

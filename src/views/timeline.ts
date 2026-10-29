@@ -485,7 +485,7 @@ function busyHours(items: AgendaItem[], days: Date[]): [number, number] {
  * zoom (and any pinch or scroll since), unless their items now need other
  * hours and you haven't zoomed or scrolled since.
  */
-let fitted = { days: "", hours: "", adjusted: false, height: 0, from: 0, applied: true };
+let fitted = { days: "", hours: "", room: 0, adjusted: false, height: 0, from: 0, applied: true };
 
 /** The sliding strip of each week view on screen, for `slideTimeline`. */
 const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>();
@@ -538,9 +538,23 @@ export function renderTimeline(
     scroller.scrollLeft = first * column;
   };
   size();
+  // A bigger or smaller window: fit the hours to it again (once it's done
+  // changing). Zoomed yourself, they're at least made tall enough to fill it.
+  let refit: number | undefined;
   const resized = new ResizeObserver(() => {
     if (!scroller.isConnected) return resized.disconnect();
     size();
+    window.clearTimeout(refit);
+    refit = window.setTimeout(() => {
+      if (!scroller.isConnected) return;
+      const zoom = fit();
+      const tall = Math.max(hourHeight, room() / 24);
+      if (!zoom && Math.abs(tall - hourHeight) < 0.5) return;
+      const hoursAtTop = scroller.scrollTop / hourHeight;
+      fitted.applied = true;
+      hourHeight = zoom ? zoom[0] : tall;
+      redraw(zoom ? zoom[1] : hoursAtTop);
+    }, 150);
   });
   resized.observe(scroller);
 
@@ -573,21 +587,26 @@ export function renderTimeline(
     renderTimeline(root, { ...ctx, anchor: days[first], preserveScroll: hour === undefined, reveal: undefined }, days, visible, hour);
   const onScreen = () => days.slice(first, first + visible);
   /** The hour height (and first hour) that fits the days on screen, if they need fitting now. */
+  /** The hours' height on screen, less what the phone's floating buttons cover. */
+  const room = () => {
+    const dock = document.querySelector<HTMLElement>(".dock");
+    const shown = dock && dock.getClientRects().length > 0; // not display: none (desktop)
+    const covered = shown ? Math.max(0, scroller.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
+    return scroller.clientHeight - top.offsetHeight - covered;
+  };
   const fit = (): [height: number, from: number] | null => {
     const daysKey = `${toDateString(days[first])}+${visible}`;
     const [from, to] = busyHours(ctx.items, onScreen());
     const hoursKey = `${from}-${to}`;
-    if (daysKey === fitted.days && (hoursKey === fitted.hours || fitted.adjusted)) {
+    const space = room();
+    // The same days, needing the same hours, in about the same space.
+    const same = daysKey === fitted.days && (hoursKey === fitted.hours || fitted.adjusted);
+    if (same && (fitted.adjusted || Math.abs(space - fitted.room) < 20)) {
       // Worked out already, but (say) a redraw came before it could be applied.
       return fitted.applied ? null : [fitted.height, fitted.from];
     }
-    // The hours' height, less what the phone's floating buttons cover.
-    const dock = document.querySelector<HTMLElement>(".dock");
-    const shown = dock && dock.getClientRects().length > 0; // not display: none (desktop)
-    const covered = shown ? Math.max(0, scroller.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
-    const room = scroller.clientHeight - top.offsetHeight - covered;
-    const height = Math.min(MAX_FIT_HEIGHT, Math.max(MIN_HOUR_HEIGHT, room / (to - from)));
-    fitted = { days: daysKey, hours: hoursKey, adjusted: false, height, from, applied: false };
+    const height = Math.min(MAX_FIT_HEIGHT, Math.max(MIN_HOUR_HEIGHT, space / (to - from)));
+    fitted = { days: daysKey, hours: hoursKey, room: space, adjusted: false, height, from, applied: false };
     return [height, from];
   };
 

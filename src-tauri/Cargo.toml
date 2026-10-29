@@ -38,10 +38,11 @@ thiserror = "2"
 
 # Desktop only: pop-up alerts before events (on iPhone they'd need to be
 # scheduled ahead with iOS instead); the quick-add keyboard shortcut; and
-# placing the menu bar window under its icon.
+# opening at login.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
 
 # Mac only: Apple Calendar and Reminders (EventKit), and travel times for
 # "time to leave" alerts (Core Location, MapKit).
