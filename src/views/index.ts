@@ -24,14 +24,25 @@ interface ViewSpec {
 const AGENDA_DAYS = 14;
 const WEEK_DRAWN_DAYS = 6 * 7;
 
-const dayTitle = new Intl.DateTimeFormat(undefined, {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
 const monthTitle = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
-const rangeTitle = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+/**
+ * The title for `count` days from `first`: the month most of them fall in,
+ * e.g. "October 2026" (on a tie, the earlier month).
+ */
+function monthInView(first: Date, count: number): string {
+  const tally = new Map<string, { day: Date; days: number }>();
+  for (let i = 0; i < count; i++) {
+    const day = addDays(first, i);
+    const key = `${day.getFullYear()}-${day.getMonth()}`;
+    const entry = tally.get(key) ?? { day, days: 0 };
+    entry.days++;
+    tally.set(key, entry);
+  }
+  let most = tally.values().next().value!;
+  for (const entry of tally.values()) if (entry.days > most.days) most = entry;
+  return monthTitle.format(most.day);
+}
 
 const daysFrom = (from: Date, count: number) => Array.from({ length: count }, (_, i) => addDays(from, i));
 
@@ -61,7 +72,7 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
     key: "d",
     range: (anchor) => ({ from: anchor, to: addDays(anchor, 1) }),
     step: (anchor, dir) => addDays(anchor, dir),
-    title: (anchor) => dayTitle.format(anchor),
+    title: (anchor) => monthTitle.format(anchor),
     render: (root, ctx) => renderTimeline(root, ctx, [ctx.from]),
   },
   // A few days at a time (Settings says how many), sliding like the week.
@@ -70,10 +81,7 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
     key: "x",
     range: slidingRange,
     step: (anchor, dir) => addDays(anchor, multiDayCount() * dir),
-    title: (anchor) => {
-      const last = addDays(anchor, multiDayCount() - 1);
-      return rangeTitle.formatRange(anchor, last);
-    },
+    title: (anchor) => monthInView(anchor, multiDayCount()),
     render: (root, ctx) => renderTimeline(root, ctx, daysFrom(ctx.from, WEEK_DRAWN_DAYS), multiDayCount()),
   },
   week: {
@@ -88,7 +96,7 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
       if (dir < 0 && !isSameDay(anchor, weekStart)) return weekStart;
       return addDays(weekStart, 7 * dir);
     },
-    title: (anchor) => rangeTitle.formatRange(anchor, addDays(anchor, 6)),
+    title: (anchor) => monthInView(anchor, 7),
     render: (root, ctx) => renderTimeline(root, ctx, daysFrom(ctx.from, WEEK_DRAWN_DAYS), 7),
   },
   month: {
@@ -119,7 +127,7 @@ export const VIEWS: Record<ViewName, ViewSpec> = {
     key: "a",
     range: (anchor) => ({ from: anchor, to: addDays(anchor, AGENDA_DAYS) }),
     step: (anchor, dir) => addDays(anchor, AGENDA_DAYS * dir),
-    title: (anchor) => rangeTitle.formatRange(anchor, addDays(anchor, AGENDA_DAYS - 1)),
+    title: (anchor) => monthInView(anchor, AGENDA_DAYS),
     render: renderAgenda,
   },
 };

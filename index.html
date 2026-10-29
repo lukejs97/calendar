@@ -24,7 +24,11 @@
   <body>
     <header class="topbar">
       <div>
-        <h1 id="title">Minuteman</h1>
+        <!-- The month in view; clicking it goes back to today. -->
+        <!-- Phones move the ‹ › buttons in here, beside the title. -->
+        <div id="title-row" class="title-row">
+          <h1><button id="title" class="title-button">Minuteman</button></h1>
+        </div>
         <p id="account" class="account"></p>
       </div>
       <div id="actions" class="actions" hidden>
@@ -40,7 +44,6 @@
     </header>
     <nav id="toolbar" class="toolbar" aria-label="Calendar navigation" hidden>
       <div class="nav-buttons">
-        <button id="today" class="pill-button" title="Today (T)">Today</button>
         <button id="prev" class="icon-button" title="Previous (&#x2190;)" aria-label="Previous">&#x2039;</button>
         <button id="next" class="icon-button" title="Next (&#x2192;)" aria-label="Next">&#x203a;</button>
       </div>
@@ -48,5 +51,20 @@
     </nav>
     <div id="banner" aria-live="polite"></div>
     <main id="app"></main>
+    <!-- Phones: the menu, Search and New event float at the bottom, within thumb's reach. -->
+    <div id="dock" class="dock" hidden>
+      <div class="dock-menu">
+        <button id="menu-button" class="dock-button" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+        <div id="menu" class="menu" role="menu" aria-label="Menu" hidden></div>
+      </div>
+      <button id="dock-search" class="dock-button" aria-label="Search">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
+      </button>
+      <button id="dock-new" class="dock-button dock-new" aria-label="New event">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      </button>
+    </div>
   </body>
 </html>

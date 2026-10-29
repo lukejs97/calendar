@@ -118,6 +118,23 @@ button:disabled {
   letter-spacing: 0.01em;
 }
 
+/* The month title is also the "go to today" button; it looks like a heading. */
+.title-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.title-button[title]:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
 .account {
   margin: 0;
   font-size: 12px;
@@ -194,6 +211,146 @@ button:disabled {
 @media (max-width: 360px) {
   .segmented button {
     font-size: 12px;
+  }
+}
+
+/* Phones, laid out like Fantastical: a big month title (the year in red) with
+   the arrows beside it; the menu, Search and New event float at the bottom,
+   within thumb's reach. */
+.dock {
+  display: none;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-bottom: 6px;
+  }
+
+  .topbar h1 {
+    font-size: 28px;
+    line-height: 1.15;
+  }
+
+  /* Light enough to read on the navy. */
+  .title-year {
+    color: #ff8a8f;
+  }
+
+  .account,
+  .actions,
+  #view-switcher {
+    display: none;
+  }
+
+  /* Only the stripes are left of the toolbar. */
+  .toolbar {
+    padding: 0 0 9px;
+  }
+
+  .title-row .icon-button {
+    font-size: 26px;
+    line-height: 1;
+    padding: 2px 9px 5px;
+  }
+
+  .dock:not([hidden]) {
+    display: flex;
+    position: fixed;
+    /* Above the timeline's sticky hours and day headers. */
+    z-index: 20;
+    left: calc(14px + env(safe-area-inset-left));
+    right: calc(14px + env(safe-area-inset-right));
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    align-items: center;
+    justify-content: space-between;
+    /* Taps between the buttons reach the calendar. */
+    pointer-events: none;
+  }
+
+  .dock > * {
+    pointer-events: auto;
+  }
+
+  .dock-menu {
+    position: relative;
+  }
+
+  .dock-button {
+    display: grid;
+    place-items: center;
+    width: 50px;
+    height: 50px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    color: var(--on-chrome);
+    background: var(--chrome);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.28);
+  }
+
+  .dock-new {
+    color: var(--on-accent);
+    background: var(--accent);
+  }
+
+  .dock-button:active {
+    filter: brightness(1.15);
+  }
+
+  .menu {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 10px);
+    min-width: 210px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg);
+    box-shadow: 0 10px 32px rgb(0 0 0 / 0.25);
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px 12px 10px 6px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    font-size: 16px;
+    text-align: left;
+  }
+
+  .menu-item:hover,
+  .menu-item:focus-visible {
+    background: var(--surface);
+    outline: none;
+  }
+
+  .menu-check {
+    width: 20px;
+    text-align: center;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .menu-line {
+    margin: 5px 8px;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  /* So the last events and days aren't hidden behind the buttons. */
+  main {
+    padding-bottom: 76px;
   }
 }
 

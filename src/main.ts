@@ -48,6 +48,9 @@ const actions = document.querySelector<HTMLElement>("#actions")!;
 const toolbar = document.querySelector<HTMLElement>("#toolbar")!;
 const viewSwitcher = document.querySelector<HTMLElement>("#view-switcher")!;
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!;
+const dock = document.querySelector<HTMLElement>("#dock")!;
+const menuButton = document.querySelector<HTMLButtonElement>("#menu-button")!;
+const menu = document.querySelector<HTMLElement>("#menu")!;
 
 const firstView = savedView();
 const state = { view: firstView, anchor: firstDay(firstView, new Date()) };
@@ -198,7 +201,10 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
 }
 
 function updateToolbar(): void {
-  title.textContent = VIEWS[state.view].title(state.anchor);
+  // The year in a span of its own, so phones can colour it.
+  const parts = VIEWS[state.view].title(state.anchor).split(/(\d{4})/);
+  title.replaceChildren(...parts.map((part, i) => (i % 2 ? el("span", "title-year", part) : part)));
+  title.title = "Go to today (T)";
   for (const button of viewSwitcher.querySelectorAll("button")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === state.view));
   }
@@ -308,6 +314,7 @@ function firstDay(view: ViewName, date: Date): Date {
 function showCalendar(): void {
   actions.hidden = false;
   toolbar.hidden = false;
+  dock.hidden = false;
   app.replaceChildren(el("p", "empty", "Loading…"));
   void load();
   window.clearInterval(refreshTimer);
@@ -322,7 +329,10 @@ function showSignedOut(error?: string): void {
   shown = undefined;
   actions.hidden = true;
   toolbar.hidden = true;
+  dock.hidden = true;
+  closeMenu();
   title.textContent = "Minuteman";
+  title.removeAttribute("title");
   account.textContent = "";
   banner.replaceChildren();
   app.classList.remove("loading");
@@ -389,6 +399,88 @@ function labelViews(): void {
   }
 }
 
+function showSettings(): void {
+  openSettings({
+    accountsChanged: (signedIn) => {
+      if (!signedIn) return showSignedOut();
+      cache.clear();
+      void load();
+    },
+    todoistChanged: () => {
+      cache.clear();
+      void load();
+    },
+    daysChanged: () => {
+      labelViews();
+      if (state.view === "days") void load();
+    },
+  });
+}
+
+/** One line of the phone menu; the views are ticked when they're on screen. */
+function menuItem(label: string, run: () => void, checked?: boolean): HTMLButtonElement {
+  const item = el("button", "menu-item");
+  item.setAttribute("role", checked === undefined ? "menuitem" : "menuitemradio");
+  if (checked !== undefined) item.setAttribute("aria-checked", String(checked));
+  item.append(el("span", "menu-check", checked ? "✓" : ""), el("span", "", label));
+  item.addEventListener("click", () => {
+    closeMenu();
+    run();
+  });
+  return item;
+}
+
+function openMenu(): void {
+  menu.replaceChildren(
+    ...VIEW_ORDER.map((name) => menuItem(viewLabel(name), () => switchView(name), name === state.view)),
+    el("hr", "menu-line"),
+    menuItem("Refresh", () => void load()),
+    el("hr", "menu-line"),
+    menuItem("Settings…", showSettings),
+  );
+  menu.hidden = false;
+  menuButton.setAttribute("aria-expanded", "true");
+  menu.querySelector<HTMLButtonElement>("[aria-checked=true]")?.focus();
+}
+
+function closeMenu(): void {
+  menu.hidden = true;
+  menuButton.setAttribute("aria-expanded", "false");
+}
+
+/** Phones: the ‹ › buttons beside the title; otherwise in the toolbar. */
+function placeArrows(): void {
+  const phone = window.matchMedia("(max-width: 640px)");
+  const arrows = document.querySelector<HTMLElement>(".nav-buttons")!;
+  const place = () => {
+    if (phone.matches) document.querySelector("#title-row")!.append(arrows);
+    else toolbar.prepend(arrows);
+  };
+  phone.addEventListener("change", place);
+  place();
+}
+
+/** The phone's ☰ menu: the views, Refresh and Settings. */
+function setUpMenu(): void {
+  menuButton.addEventListener("click", () => (menu.hidden ? openMenu() : closeMenu()));
+  // A tap anywhere else, or Escape, closes it.
+  document.addEventListener("pointerdown", (e) => {
+    if (!menu.hidden && !(e.target instanceof Node && menu.parentElement!.contains(e.target))) closeMenu();
+  });
+  menu.addEventListener("keydown", (e) => {
+    const items = [...menu.querySelectorAll<HTMLButtonElement>(".menu-item")];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "Escape") {
+      closeMenu();
+      menuButton.focus();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    } else return;
+    e.preventDefault();
+    e.stopPropagation(); // not the calendar's arrow keys
+  });
+}
+
 function setUpControls(): void {
   for (const name of VIEW_ORDER) {
     const button = el("button");
@@ -398,29 +490,20 @@ function setUpControls(): void {
   }
   labelViews();
 
-  document.querySelector("#today")!.addEventListener("click", () => showDate(new Date()));
+  // The month title doubles as the "Today" button.
+  title.addEventListener("click", () => {
+    if (!toolbar.hidden) showDate(new Date());
+  });
   document.querySelector("#prev")!.addEventListener("click", () => step(-1));
   document.querySelector("#next")!.addEventListener("click", () => step(1));
   refreshButton.addEventListener("click", load);
   document.querySelector("#new-event")!.addEventListener("click", newEvent);
   document.querySelector("#search")!.addEventListener("click", searchEvents);
-  document.querySelector("#settings")!.addEventListener("click", () =>
-    openSettings({
-      accountsChanged: (signedIn) => {
-        if (!signedIn) return showSignedOut();
-        cache.clear();
-        void load();
-      },
-      todoistChanged: () => {
-        cache.clear();
-        void load();
-      },
-      daysChanged: () => {
-        labelViews();
-        if (state.view === "days") void load();
-      },
-    }),
-  );
+  document.querySelector("#settings")!.addEventListener("click", showSettings);
+  document.querySelector("#dock-new")!.addEventListener("click", newEvent);
+  document.querySelector("#dock-search")!.addEventListener("click", searchEvents);
+  setUpMenu();
+  placeArrows();
 
   document.addEventListener("keydown", (e) => {
     if (toolbar.hidden || document.querySelector("dialog[open]")) return;
@@ -438,7 +521,7 @@ function setUpControls(): void {
     else if (key === "t") showDate(new Date());
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
-    else if (key === ",") document.querySelector<HTMLButtonElement>("#settings")!.click();
+    else if (key === ",") showSettings();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;
