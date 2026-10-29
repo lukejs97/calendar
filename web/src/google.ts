@@ -18,6 +18,7 @@ import {
   dayString,
   parseDay,
   type Wall,
+  validZone,
   wallClock,
   wallFromMs,
   wallMs,
@@ -175,6 +176,8 @@ interface CalendarListEntry {
   accessRole?: string;
   primary?: boolean;
   defaultReminders?: Reminder[];
+  /** For events that don't name their own. */
+  timeZone?: string;
 }
 
 const calendarName = (c: CalendarListEntry) => c.summaryOverride ?? c.summary ?? c.id;
@@ -191,8 +194,8 @@ interface GoogleEvent {
   summary?: string;
   location?: string;
   htmlLink?: string;
-  start?: { date?: string; dateTime?: string };
-  end?: { date?: string; dateTime?: string };
+  start?: { date?: string; dateTime?: string; timeZone?: string };
+  end?: { date?: string; dateTime?: string; timeZone?: string };
   attendees?: {
     self?: boolean;
     responseStatus?: string;
@@ -209,13 +212,20 @@ interface GoogleEvent {
   organizer?: { self?: boolean };
   guestsCanModify?: boolean;
   recurringEventId?: string;
+  extendedProperties?: { private?: Record<string, string> };
 }
+
+/**
+ * Marks an event (privately, on your copy) as keeping its clock time in any
+ * time zone, as in google/calendar.rs. Google itself has no such events.
+ */
+const FLOATING = "minutemanFloating";
 
 /** Only the event fields the app uses, to keep replies (and the server's work) small. */
 const EVENT_FIELDS =
   "nextPageToken,items(id,status,summary,location,htmlLink,start,end,eventType,description,hangoutLink," +
   "attendees(self,responseStatus,email,displayName,organizer,resource),conferenceData/entryPoints(entryPointType,uri)," +
-  "reminders,organizer/self,guestsCanModify,recurringEventId)";
+  "reminders,organizer/self,guestsCanModify,recurringEventId,extendedProperties/private)";
 
 const path = (...segments: string[]) => segments.map(encodeURIComponent).join("/");
 
@@ -288,6 +298,7 @@ export async function findEvents(
   from: Date,
   to: Date,
   hidden: string[],
+  zone: string,
   query?: string,
 ): Promise<CalendarEvents> {
   const calendars = (await listCalendars(token)).filter((c) => !hidden.includes(c.id));
@@ -298,7 +309,7 @@ export async function findEvents(
     const result = results[i];
     if (result.status === "fulfilled") {
       for (const event of result.value) {
-        const item = toAgendaItem(account, calendar, event);
+        const item = toAgendaItem(account, calendar, event, zone);
         if (item) items.push(item);
       }
     } else {
@@ -354,7 +365,11 @@ export async function eventCalendars(env: Env): Promise<AccountCalendars[]> {
   );
 }
 
-function toAgendaItem(account: Account, calendar: CalendarListEntry, event: GoogleEvent): AgendaItem | null {
+/**
+ * An event as an agenda item. `zone` is the browser's: a floating event's
+ * clock time in its own zone becomes that same clock time there.
+ */
+function toAgendaItem(account: Account, calendar: CalendarListEntry, event: GoogleEvent, zone: string): AgendaItem | null {
   if (event.status === "cancelled") return null;
   // "Working from home/office" markers clutter an agenda.
   if (event.eventType === "workingLocation") return null;
@@ -365,6 +380,10 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
   if (!startValue) return null;
   const allDay = !event.start?.dateTime;
   const end = event.end?.dateTime ?? event.end?.date ?? null;
+  const timeZone = event.start?.timeZone ?? calendar.timeZone ?? null;
+  const floating = !allDay && event.extendedProperties?.private?.[FLOATING] === "true";
+  const floatHere = (instant: string) =>
+    floating && timeZone ? wallToInstant(wallClock(new Date(instant), validZone(timeZone)), zone).toISOString() : instant;
 
   const conferenceUrl =
     event.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
@@ -394,9 +413,11 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     source: "google",
     kind: "event",
     title: nonEmpty(event.summary) ?? "(No title)",
-    start: startValue,
-    end,
+    start: floatHere(startValue),
+    end: end && floatHere(end),
     allDay,
+    floating,
+    timeZone,
     location: nonEmpty(event.location),
     color: calendar.backgroundColor ?? null,
     listName: calendarName(calendar),
@@ -479,6 +500,9 @@ function draftJson(draft: EventDraft): Record<string, unknown> {
     body.reminders = { useDefault: false, overrides: draft.alerts.minutes.map((minutes) => ({ method: "popup", minutes })) };
   }
   if (draft.recurrence) body.recurrence = draft.recurrence;
+  if (draft.floating !== null && draft.floating !== undefined) {
+    body.extendedProperties = { private: { [FLOATING]: String(draft.floating) } };
+  }
   if (draft.guests) {
     body.attendees = draft.guests.map((g) =>
       g.response ? { email: g.email.trim(), responseStatus: g.response } : { email: g.email.trim() },

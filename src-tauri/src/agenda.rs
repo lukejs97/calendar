@@ -101,6 +101,13 @@ pub struct AgendaItem {
     /// When to alert, in minutes before the start. Timed Google events only.
     #[serde(default)]
     pub reminders: Vec<u32>,
+    /// Keeps its clock time in any time zone: `start` and `end` are then that
+    /// clock time here (see google/calendar.rs `FLOATING`).
+    #[serde(default)]
+    pub floating: bool,
+    /// Google events: the event's own time zone (IANA name).
+    #[serde(default)]
+    pub time_zone: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -22,7 +22,17 @@ import {
 import { el } from "./dom";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
-import { addDays, itemEnd, itemStart, localTimeZone, parseDate, toDateString, toLocalIso } from "./time";
+import {
+  addDays,
+  floatingZone,
+  itemEnd,
+  itemStart,
+  localTimeZone,
+  parseDate,
+  sameClockIn,
+  toDateString,
+  toLocalIso,
+} from "./time";
 
 export type Mode = "event" | "task";
 
@@ -139,6 +149,9 @@ class Form {
   // Event fields
   private eventTitle = input("text", "Title");
   private allDay = el("input");
+  /** Keeps its clock time in any time zone. */
+  private floating = el("input");
+  private floatingLabel = el("label", "form-check");
   private startDate = input("date");
   private startTime = input("time");
   private endDate = input("date");
@@ -262,6 +275,10 @@ class Form {
     this.allDay.type = "checkbox";
     const allDayLabel = el("label", "form-check");
     allDayLabel.append(this.allDay, " All day");
+    this.floating.type = "checkbox";
+    this.floatingLabel.title =
+      "Stays at this time wherever you are: 9 AM is 9 AM in any time zone. (Only in Minuteman: Google's own apps show it fixed.)";
+    this.floatingLabel.append(this.floating, " Same time in any time zone");
     this.eventNotes.rows = 3;
     this.notifyGuests.type = "checkbox";
     this.notifyGuests.checked = true;
@@ -270,7 +287,7 @@ class Form {
     if (this.inSeries()) this.row(grid, "Change", this.scope);
     this.row(grid, "Title", this.eventTitle);
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
-    this.row(grid, "Ends", this.endDate, this.endTime);
+    this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
     this.row(grid, "Where", this.location);
     this.row(grid, "Repeat", this.repeat);
     this.row(grid, "Alert", this.alert);
@@ -281,6 +298,7 @@ class Form {
 
     this.track("title", this.eventTitle);
     this.track("when", this.allDay, this.startDate, this.startTime, this.endDate, this.endTime);
+    this.track("floating", this.floating);
     this.track("location", this.location);
     this.track("repeat", this.repeat);
     this.track("alert", this.alert);
@@ -371,6 +389,8 @@ class Form {
   private showTimes(): void {
     const timed = !this.allDay.checked;
     this.startTime.hidden = this.endTime.hidden = !timed;
+    // All-day events are the same days anywhere already.
+    this.floatingLabel.hidden = !timed;
   }
 
   private showTaskRepeat(): void {
@@ -449,6 +469,7 @@ class Form {
     }
     this.eventTitle.value = item.title;
     this.setWhen(itemStart(item), itemEnd(item), item.allDay);
+    this.floating.checked = Boolean(item.floating);
     this.location.value = item.location ?? "";
     this.eventNotes.value = plainText(item.description);
     this.guests.value = item.attendees
@@ -638,7 +659,7 @@ class Form {
       const repeat = this.repeat.value;
       if (this.wholeSeries() && repeat in REPEAT_RULES) recurrence = [REPEAT_RULES[repeat as Repeat]];
       if (this.wholeSeries() && repeat === "end" && this.seriesRules) {
-        recurrence = endAfter(this.seriesRules, itemStart(item), item.allDay);
+        recurrence = endAfter(this.seriesRules, this.savedInstant(itemStart(item)), item.allDay);
       }
     } else if (editing("repeat")) {
       const repeat = this.repeat.value as Repeat | "";
@@ -671,12 +692,17 @@ class Form {
       if (!item && guests.length === 0) guests = null;
     }
 
+    // Kept at its clock time anywhere: what's shown here is saved as that
+    // clock time in the event's own zone.
+    const zone = this.floating.checked ? floatingZone(item) : null;
+    const time = (d: Date) => (zone ? sameClockIn(d, zone).toISOString() : toLocalIso(d));
     return {
       title: this.eventTitle.value.trim(),
-      start: allDay ? toDateString(start) : toLocalIso(start),
-      end: allDay ? toDateString(end) : toLocalIso(end),
+      start: allDay ? toDateString(start) : time(start),
+      end: allDay ? toDateString(end) : time(end),
       allDay,
-      timeZone: localTimeZone(),
+      timeZone: zone ?? localTimeZone(),
+      floating: allDay ? null : item ? (editing("floating") ? this.floating.checked : null) : this.floating.checked || null,
       location: this.location.value.trim() || null,
       // Untouched notes are sent back exactly as they were, formatting and all.
       description: editing("notes") ? this.eventNotes.value.trim() || null : (item?.description ?? null),
@@ -704,11 +730,19 @@ class Form {
     const whole = this.wholeSeries();
     // Editing the whole series from this event: when this one was, so the
     // others move by as much as it did.
+    const zone = floatingZone(item);
+    const at = (iso: string) => (zone ? sameClockIn(new Date(iso), zone).toISOString() : iso);
     const occurrence = whole
-      ? { start: item.start, end: item.end ?? item.start, allDay: item.allDay, timeZone: localTimeZone() }
+      ? { start: at(item.start), end: at(item.end ?? item.start), allDay: item.allDay, timeZone: zone ?? localTimeZone() }
       : null;
     const notify = this.notifyGuests.checked && !this.notifyRow.hidden;
     await updateEvent(eventRef(item, whole), draft, moveTo, notify, occurrence);
+  }
+
+  /** When `shown` (a time as shown here) really is, for this event: its own zone's clock time if it's floating. */
+  private savedInstant(shown: Date): Date {
+    const zone = floatingZone(this.item);
+    return zone ? sameClockIn(shown, zone) : shown;
   }
 
   /** The series' rules (fetched once); null if they couldn't be. */

@@ -25,11 +25,13 @@ import { refreshWeather } from "./weather";
 import { openSettings } from "./settings";
 import {
   addDays,
+  floatingZone,
   isSameDay,
   itemEnd,
   itemStart,
   localTimeZone,
   overlaps,
+  sameClockIn,
   startOfDay,
   startOfWeek,
   timeFormat,
@@ -193,7 +195,10 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
     if (item.source === "todoist") {
       await setTaskDue(item.sourceId!, { kind: "at", at: format(start) });
     } else {
-      const times = { start: format(start), end: format(end), allDay: item.allDay, timeZone: localTimeZone() };
+      // Kept at its clock time anywhere: saved as that clock time in its own zone.
+      const zone = floatingZone(item);
+      const at = (d: Date) => (zone ? sameClockIn(d, zone).toISOString() : format(d));
+      const times = { start: at(start), end: at(end), allDay: item.allDay, timeZone: zone ?? localTimeZone() };
       await setEventTimes(eventRef(item), times, hasGuests(item));
     }
     announceChange();
@@ -284,7 +289,8 @@ async function load(): Promise<void> {
  * something or have a menu open.
  */
 async function sync(): Promise<void> {
-  if (document.hidden || !shown || document.querySelector(".dragging, .context-menu")) return;
+  // Not under an open popup either: the change would show through its dimmed background.
+  if (document.hidden || !shown || document.querySelector(".dragging, .context-menu, dialog[open]")) return;
   void updateWeather();
   if (Date.now() - lastSync < SYNC_EVERY_MS / 4) return;
   lastSync = Date.now();
@@ -297,7 +303,7 @@ async function sync(): Promise<void> {
     cache.delete(key);
     cache.set(key, agenda);
     if (shown?.range === key && JSON.stringify(shown.agenda) === JSON.stringify(agenda)) return;
-    if (document.querySelector(".dragging, .context-menu")) return;
+    if (document.querySelector(".dragging, .context-menu, dialog[open]")) return;
     render(agenda);
   } catch {
     // Offline or the like: the next try, or a refresh, says so.
@@ -306,7 +312,11 @@ async function sync(): Promise<void> {
 
 /** Fetches the weather if it's due (every few hours), and redraws with it. */
 async function updateWeather(): Promise<void> {
-  if ((await refreshWeather()) && shown && !document.querySelector(".dragging, .context-menu")) render(shown.agenda);
+  if (!(await refreshWeather()) || !shown) return;
+  // Under an open popup, wait until it's closed.
+  const open = document.querySelector<HTMLDialogElement>("dialog[open]");
+  if (open) open.addEventListener("close", () => void updateWeather().then(rerender), { once: true });
+  else if (!document.querySelector(".dragging, .context-menu")) render(shown.agenda);
 }
 
 function goTo(view: ViewName, date: Date): void {

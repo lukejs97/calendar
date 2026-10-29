@@ -54,6 +54,13 @@ export interface AgendaItem {
   conferenceUrl: string | null;
   /** When to alert, in minutes before the start. */
   reminders: number[];
+  /**
+   * Keeps its clock time in any time zone (an event marked so here, or
+   * Apple's floating events): its times are that clock time here.
+   */
+  floating?: boolean;
+  /** Google events: the event's own time zone. */
+  timeZone?: string | null;
 }
 
 export interface Agenda {
@@ -111,6 +118,8 @@ export type Alerts = { kind: "default" } | { kind: "custom"; minutes: number[] }
 
 /** An event as the New or Edit form filled it in. Mirrors `EventDraft` in google/calendar.rs. */
 export interface EventDraft extends EventTimes {
+  /** Keep its clock time in any time zone; null leaves it as it is. */
+  floating?: boolean | null;
   title: string;
   location: string | null;
   description: string | null;

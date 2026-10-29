@@ -321,6 +321,8 @@ fn to_agenda_item(
         attendees: Vec::new(),
         conference_url: None,
         reminders: Vec::new(),
+        floating: false,
+        time_zone: None,
     })
 }
 

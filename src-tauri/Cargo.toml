@@ -34,6 +34,8 @@ base64 = "0.22"
 rand = "0.8"
 url = "2"
 chrono = "0.4"
+# Time zones by name, for events that keep their clock time anywhere.
+chrono-tz = "0.10"
 thiserror = "2"
 
 # Desktop only: pop-up alerts before events (on iPhone they'd need to be

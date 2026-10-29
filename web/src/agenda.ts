@@ -31,7 +31,7 @@ async function collect(ctx: Context, from: string, to: string, query?: string) {
 
   const [google, tasks] = await Promise.all([
     Promise.allSettled(
-      accounts.map(async (account) => findEvents(await accessToken(env, account), account, start, end, hidden[account.email] ?? [], query)),
+      accounts.map(async (account) => findEvents(await accessToken(env, account), account, start, end, hidden[account.email] ?? [], zone, query)),
     ),
     readTodoistToken(env).then((token) =>
       token ? todoist.tasksBetween(token, from, to, zone).then((t) => ({ ok: t }), (e: unknown) => ({ error: e })) : null,

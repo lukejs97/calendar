@@ -284,6 +284,8 @@ mod tests {
             attendees: Vec::new(),
             conference_url: None,
             reminders,
+            floating: false,
+            time_zone: None,
         }
     }
 

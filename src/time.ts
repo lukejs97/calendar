@@ -133,3 +133,35 @@ export function toLocalIso(d: Date): string {
 
 /** The system's time zone, e.g. "Europe/London". */
 export const localTimeZone = (): string | null => Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+
+/**
+ * The instant `local`'s clock time (here) happens in `zone`. For events that
+ * keep their clock time in any time zone: what's shown here at 9 AM is saved
+ * as 9 AM in the event's own zone.
+ */
+export function sameClockIn(local: Date, zone: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  });
+  /** How far `zone` is ahead of UTC at `at` (ms). */
+  const offset = (at: number) => {
+    const p: Record<string, number> = {};
+    for (const part of parts.formatToParts(new Date(at))) if (part.type !== "literal") p[part.type] = Number(part.value);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(at / 1000) * 1000;
+  };
+  const clock = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds());
+  // Guess with the zone's offset then, and correct once (clock changes).
+  const guess = clock - offset(clock);
+  return new Date(clock - offset(guess));
+}
+
+/** The zone a floating timed event's clock time belongs to; null for any other item. */
+export const floatingZone = (item: { floating?: boolean; timeZone?: string | null; allDay: boolean } | null) =>
+  item?.floating && item.timeZone && !item.allDay ? item.timeZone : null;

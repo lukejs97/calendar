@@ -41,6 +41,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   let when = describeTimes(itemStart(item), itemEnd(item), item.allDay);
   if (item.kind === "task") when = item.overdue ? `Overdue · shown on ${when}` : `Due ${when}`;
   if (item.recurring) when += " · Repeats";
+  if (item.floating && !item.allDay) when += " · Same time in any time zone";
   rows.append(row("When", when));
 
   if (item.conferenceUrl) {
@@ -94,8 +95,8 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     });
     const edit = el("button", "text-button", "Edit");
     edit.addEventListener("click", () => {
+      actions.edit(item); // the form first, so the dimmed background stays
       dialog.close();
-      actions.edit(item);
     });
     buttons.append(remove, edit);
   }

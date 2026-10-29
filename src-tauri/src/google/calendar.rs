@@ -36,6 +36,8 @@ struct CalendarListEntry {
     /// The calendar's reminders for events that don't set their own.
     #[serde(default)]
     default_reminders: Vec<Reminder>,
+    /// The calendar's time zone, for events that don't name their own.
+    time_zone: Option<String>,
 }
 
 impl CalendarListEntry {
@@ -71,7 +73,19 @@ struct Event {
     guests_can_modify: bool,
     /// Set on each occurrence of a repeating event.
     recurring_event_id: Option<String>,
+    extended_properties: Option<ExtendedProperties>,
 }
+
+#[derive(Deserialize)]
+struct ExtendedProperties {
+    #[serde(default)]
+    private: std::collections::HashMap<String, String>,
+}
+
+/// Marks an event (privately, on your copy) as keeping its clock time in any
+/// time zone: Minuteman shows 9 AM as 9 AM wherever you are. Google itself
+/// has no such "floating" events, so its own apps still show it fixed.
+pub const FLOATING: &str = "minutemanFloating";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +131,7 @@ struct Organizer {
 struct EventTime {
     date: Option<String>,
     date_time: Option<String>,
+    time_zone: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -353,6 +368,9 @@ pub struct EventDraft {
     pub alerts: Option<Alerts>,
     /// `None` leaves an existing event's guests as they are.
     pub guests: Option<Vec<GuestDraft>>,
+    /// Keep its clock time in any time zone (see `FLOATING`). `None` leaves it as it is.
+    #[serde(default)]
+    pub floating: Option<bool>,
 }
 
 impl EventDraft {
@@ -383,6 +401,9 @@ impl EventDraft {
         }
         if let Some(rules) = &self.recurrence {
             body["recurrence"] = json!(rules);
+        }
+        if let Some(floating) = self.floating {
+            body["extendedProperties"] = json!({ "private": { FLOATING: floating.to_string() } });
         }
         if let Some(guests) = &self.guests {
             body["attendees"] = guests
@@ -688,12 +709,24 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
     }
 
     let start = event.start?;
+    // The event's own time zone (or else its calendar's).
+    let time_zone = start.time_zone.clone().or_else(|| calendar.time_zone.clone());
     let (start, all_day) = match (start.date_time, start.date) {
         (Some(date_time), _) => (date_time, false),
         (None, Some(date)) => (date, true),
         (None, None) => return None,
     };
     let end = event.end.and_then(|e| e.date_time.or(e.date));
+    let floating = !all_day
+        && event.extended_properties.as_ref().is_some_and(|p| p.private.get(FLOATING).is_some_and(|v| v == "true"));
+    // Floating: the same clock time it has in its own zone, but here.
+    let (start, end) = match (&time_zone, floating) {
+        (Some(zone), true) => (
+            float_here(&start, zone).unwrap_or(start),
+            end.map(|end| float_here(&end, zone).unwrap_or(end)),
+        ),
+        _ => (start, end),
+    };
 
     let conference_url = event
         .conference_data
@@ -727,6 +760,8 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         .collect();
 
     Some(AgendaItem {
+        floating,
+        time_zone,
         account: Some(account.to_string()),
         list_id: Some(calendar.id.clone()),
         source_id: Some(event.id.clone()),
@@ -752,6 +787,18 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         overdue: false,
         priority: None,
     })
+}
+
+/// `instant`'s clock time in `zone`, as that same clock time here (RFC 3339).
+/// A time that a clock change here skips moves on by an hour.
+fn float_here(instant: &str, zone: &str) -> Option<String> {
+    let zone: chrono_tz::Tz = zone.parse().ok()?;
+    let clock = DateTime::parse_from_rfc3339(instant).ok()?.with_timezone(&zone).naive_local();
+    let here = Local
+        .from_local_datetime(&clock)
+        .earliest()
+        .or_else(|| Local.from_local_datetime(&(clock + chrono::TimeDelta::hours(1))).earliest())?;
+    Some(here.to_rfc3339())
 }
 
 fn popup_minutes(reminders: &[Reminder]) -> Vec<u32> {
@@ -789,6 +836,29 @@ mod tests {
 
     fn draft(json: Value) -> EventDraft {
         serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn floating_events_keep_their_clock_time_here() {
+        // 9 AM in New York (and in Tokyo) is 9 AM here, whatever zone this runs in.
+        for (instant, zone) in [("2026-10-29T09:00:00-04:00", "America/New_York"), ("2026-10-29T00:00:00Z", "Asia/Tokyo")] {
+            let here = float_here(instant, zone).unwrap();
+            let clock = DateTime::parse_from_rfc3339(&here).unwrap().with_timezone(&Local);
+            assert_eq!(clock.format("%Y-%m-%d %H:%M").to_string(), "2026-10-29 09:00", "{instant} in {zone}");
+        }
+        assert!(float_here("2026-10-29T09:00:00Z", "Not/AZone").is_none());
+    }
+
+    #[test]
+    fn floating_is_saved_as_a_private_property() {
+        let body = draft(json!({
+            "title": "Medicine", "start": "2026-10-29T09:00:00-04:00", "end": "2026-10-29T09:15:00-04:00",
+            "allDay": false, "timeZone": "America/New_York", "location": null, "description": null,
+            "recurrence": null, "alerts": null, "guests": null, "floating": true,
+        }))
+        .to_json()
+        .unwrap();
+        assert_eq!(body["extendedProperties"]["private"][FLOATING], json!("true"));
     }
 
     /// A local time as RFC 3339, whatever zone the tests run in.

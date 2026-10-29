@@ -59,8 +59,9 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   title.id = "settings-title";
   /** Opens one of Settings' own screens in place of this one; it can come back here. */
   const openScreen = (open: (back: () => void) => unknown) => {
-    dialog.close();
+    // The new one first, so the dimmed background never drops in between.
     void open(() => void openSettings(actions));
+    dialog.close();
   };
 
   // Google accounts and Todoist open their own dialogs, in place of this one.
@@ -436,8 +437,8 @@ function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
   if (!back) return [];
   const button = el("button", "text-button settings-back", "‹ Settings");
   button.addEventListener("click", () => {
+    back(); // first, so the dimmed background stays
     dialog.close();
-    back();
   });
   return [button];
 }
@@ -546,6 +547,8 @@ export async function openTodoistSettings(onChange: () => void, back?: () => voi
   const title = el("h2", undefined, "Todoist");
   title.id = "todoist-title";
 
+  // Open right away (filled in a moment), so the dimmed background doesn't drop.
+  dialog.showModal();
   if (await todoistStatus()) {
     const disconnect = el("button", "text-button danger", "Disconnect");
     disconnect.addEventListener("click", async () => {
@@ -593,8 +596,6 @@ export async function openTodoistSettings(onChange: () => void, back?: () => voi
     form.append(input, error, buttonRow(close, connect));
     dialog.append(...backTo(dialog, back), title, help, form);
   }
-
-  dialog.showModal();
 }
 
 function buttonRow(...buttons: HTMLElement[]): HTMLElement {

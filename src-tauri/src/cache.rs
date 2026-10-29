@@ -157,6 +157,8 @@ mod tests {
             attendees: Vec::new(),
             conference_url: None,
             reminders: Vec::new(),
+            floating: false,
+            time_zone: None,
         }
     }
 

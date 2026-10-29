@@ -304,6 +304,10 @@ fn event_item(event: &EKEvent) -> AgendaItem {
         description: notes,
         attendees: Vec::new(),
         reminders: alerts(item),
+        // Apple Calendar has floating events of its own: no time zone. (EventKit
+        // already gives their times here.)
+        floating: !all_day && unsafe { event.timeZone() }.is_none(),
+        time_zone: unsafe { event.timeZone() }.map(|zone| zone.name().to_string()),
     }
 }
 
@@ -405,6 +409,8 @@ fn reminder_item(reminder: &EKReminder, from: NaiveDate, to: NaiveDate, today: N
         attendees: Vec::new(),
         conference_url: None,
         reminders: Vec::new(),
+        floating: false,
+        time_zone: None,
     })
 }
 

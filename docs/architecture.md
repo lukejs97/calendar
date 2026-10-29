@@ -207,6 +207,20 @@ there with `slideTimeline` when it's among the days drawn.
   it redraws only if the answer differs from what's drawn, and skips while
   hidden, dragging or with a menu open. (Google push notifications need a
   public web address to call, which a desktop app doesn't have.)
+- **Same time in any time zone** ("floating"): Google events have no such
+  thing, so it's a private extended property, `minutemanFloating: "true"`
+  (`FLOATING` in google/calendar.rs and web/src/google.ts). Loading one, its
+  start and end are read as clock times in the event's own zone (its
+  `timeZone`, else its calendar's) and given as those clock times here
+  (`float_here`; on the web, in the browser's zone), so views, alerts and
+  the menu bar all see them where they belong. Saving or dragging one turns
+  the clock time shown back into an instant in its own zone
+  (`sameClockIn` in time.ts). Apple Calendar's own floating events (no time
+  zone) are marked too.
+- **Popups**: opening one popup from another (details → Edit, Settings and
+  its screens) opens the new one before closing the old, so the dimmed
+  background never drops for a frame; the background isn't redrawn while a
+  popup is open (sync and weather wait until it closes).
 - **Zoom to fit** (`views/timeline.ts` `busyHours`, `fit`): when other days
   come on screen (opening a view, or once a slide settles, animated), the
   hour height is set so their timed items fill the hours' height (between

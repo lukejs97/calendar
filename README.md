@@ -28,6 +28,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   (title, times, all day, place, repeat, alert, guests, notes, calendar).
   Switch to **Task** to add a Todoist task ("Submit expenses Friday p1", "Pay
   rent every month on the 1st").
+- **Same time in any time zone:** tick it on a timed event and it keeps its
+  clock time wherever you are (a 9 AM medicine reminder stays 9 AM when you
+  travel), while other events move to show the same moment in your new time
+  zone. Google has no such events, so it's saved as a private mark on the
+  event that Minuteman reads; Google's own apps still show it fixed.
 - **Edit and delete:** click an event or task, then **Edit** or **Delete**. For
   a repeating event, choose this event only or all of them; its repeat shows
   in words ("Every Monday", "Monthly on the second Tuesday"), and you can
@@ -110,6 +115,19 @@ tools needed.
 
 The build runs on Apple Silicon and Intel Macs. GitHub Actions is free for
 public repositories.
+
+## Installing on Windows
+
+GitHub builds the Windows app too (`.github/workflows/build-windows.yml`),
+with the same two Google secrets.
+
+1. Actions tab → **Build Windows app** → **Run workflow** (about 15 minutes).
+2. Open the finished run, download **Minuteman-Windows** under Artifacts,
+   unzip it and run `Minuteman_…_x64-setup.exe`. It installs for your Windows
+   account only (no administrator needed) and replaces an older version.
+3. The first time each version runs, Windows SmartScreen warns that it's from
+   an unknown publisher (the installer isn't signed with a paid certificate):
+   **More info** → **Run anyway**.
 
 ## Developing
 
