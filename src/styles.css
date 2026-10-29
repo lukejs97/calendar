@@ -16,16 +16,17 @@
   --on-chrome-muted: #aeb6c8;
   --stripe-red: #c23a41;
   --stripe-ivory: #f3ecdc;
-  /* A touch of gold, like a flag's fringe: on the navy, on red, on ivory. */
-  --gold: #c9a24a;
-  --gold-bright: #f5d06b;
-  --gold-ink: #9a7120;
+  /* The brand's one gold, like a flag's fringe: the line under the header,
+     the month's title, today's star, the scroll bars. */
+  --gold: #d4ab4f;
   --serif: "Libre Caslon Text", "Iowan Old Style", Baskerville, Georgia, serif;
 
   --gutter: 56px;
   --month-line: 20px; /* keep in sync with LINE_HEIGHT in views/month.ts */
 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Gold scroll bars (inherited by everything that scrolls). */
+  scrollbar-color: var(--gold) transparent;
   font-size: 15px;
   line-height: 1.4;
   color: var(--text);
@@ -51,9 +52,6 @@
     --on-chrome-muted: #8f99ad;
     --stripe-red: #b8323a;
     --stripe-ivory: #d9d0bd;
-    --gold: #b8913f;
-    --gold-bright: #f0c95e;
-    --gold-ink: #d6b25e;
   }
 }
 
@@ -130,6 +128,7 @@ button:disabled {
 
 .topbar h1 {
   margin: 0;
+  color: var(--gold);
   font-family: var(--serif);
   font-size: 22px;
   font-weight: 700;
@@ -298,11 +297,6 @@ button:disabled {
   .topbar h1 {
     font-size: 28px;
     line-height: 1.15;
-  }
-
-  /* Light enough to read on the navy. */
-  .title-year {
-    color: #ff8a8f;
   }
 
   /* (Not the menu bar window's header, which is as narrow but keeps its buttons.) */
@@ -1295,7 +1289,7 @@ main.loading > * {
 .tl-day-header.today .tl-date::before,
 .month-cell.today .month-date::before {
   content: "★";
-  color: var(--gold-bright);
+  color: var(--gold);
   margin-right: 3px;
   font-size: 0.7em;
   vertical-align: 0.1em;
@@ -1303,7 +1297,7 @@ main.loading > * {
 
 .day.today .day-label::before {
   content: "★ ";
-  color: var(--gold-ink);
+  color: var(--gold);
 }
 
 .tl-allday {
