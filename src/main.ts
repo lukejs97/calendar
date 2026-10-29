@@ -590,31 +590,7 @@ function setUpControls(): void {
   });
 }
 
-/**
- * On an iPhone's home screen, iOS makes the page shorter than the screen by
- * the status bar's height (a WebKit bug with drawing behind the status bar),
- * leaving a blank strip at the bottom. Such an app always fills the screen,
- * so size the page to the screen itself.
- */
-function fillScreen(): void {
-  const standalone = (navigator as Navigator & { standalone?: boolean }).standalone;
-  if (!standalone || !/iPhone/.test(navigator.userAgent)) return;
-  const root = document.documentElement;
-  const fit = () => {
-    const long = Math.max(screen.width, screen.height);
-    const short = Math.min(screen.width, screen.height);
-    const height = window.matchMedia("(orientation: portrait)").matches ? long : short;
-    root.style.height = `${height}px`;
-    // For dialogs, which iOS still places in the shorter window.
-    root.style.setProperty("--app-height", `${height}px`);
-    root.style.setProperty("--app-gap", `${Math.max(0, height - window.innerHeight)}px`);
-  };
-  fit();
-  window.addEventListener("resize", fit);
-}
-
 async function start(): Promise<void> {
-  fillScreen();
   // In a plain browser there's no Rust side: during `npm run dev`, use sample
   // data; on the website (web/), send commands to its server.
   if (!isTauri()) {

@@ -12,10 +12,14 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="Minuteman" />
-    <!-- Opened from the home screen: full screen, the header's navy behind the status bar. -->
+    <!-- Opened from the home screen: full screen under iOS's own status bar,
+         which takes the theme colour (the header's navy). Not black-translucent:
+         on iOS 26 that leaves the page a status bar's height short of the
+         bottom, in a strip iOS won't paint. iOS reads this only when the app
+         is added to the home screen. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="theme-color" content="#1b2c4c" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0b1322" media="(prefers-color-scheme: dark)" />
     <script type="module" src="/src/main.ts" defer></script>
