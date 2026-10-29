@@ -157,10 +157,14 @@ there with `slideTimeline` when it's among the days drawn.
 ## Later: branding and design
 
 - **Logo (done):** the sources are in `src-tauri/icons/source/`:
-  `icon-mac.svg` (rounded tile with margins, for Mac and Windows) and
-  `icon-ios.svg` (full square; iOS rounds the corners itself). After editing,
-  run `npm run tauri icon src-tauri/icons/source/icon-mac.svg`, then copy the
-  `ios/` images generated from `icon-ios.svg` into
+  `icon-mac.svg` (rounded tile with Apple's margins), `icon-windows.svg` (the
+  same tile, nearly filling the square, so it isn't small in the Windows
+  taskbar) and `icon-ios.svg` (full square; iOS rounds the corners itself).
+  After editing, run `npm run tauri icon src-tauri/icons/source/icon-mac.svg`;
+  then generate `icon-windows.svg` into a scratch folder
+  (`npx tauri icon src-tauri/icons/source/icon-windows.svg -o <folder>`) and
+  copy its `icon.ico`, `Square*Logo.png` and `StoreLogo.png` over; then copy
+  the `ios/` images generated from `icon-ios.svg` into
   `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` (iOS icons must
   not have transparency).
   The website's icons are in `public/` (copied into the build as they are):
