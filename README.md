@@ -1,9 +1,16 @@
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" alt="Minuteman's logo: a flag calendar, its navy canton of stars above red and white stripes" width="128" height="128">
+</p>
+
 # Minuteman
 
 A free, personal calendar app in the style of Fantastical, on top of Google
 Calendar (and, optionally, Todoist), for the Mac and Windows. An iPhone
 version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
 [Tauri v2](https://tauri.app/): a Rust core plus a TypeScript web UI.
+
+Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
+([privacy policy](https://lukejs97.github.io/minuteman/privacy.html)).
 
 ## Features
 
