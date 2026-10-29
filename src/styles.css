@@ -262,12 +262,15 @@ button:disabled {
 
   .dock:not([hidden]) {
     display: flex;
-    position: fixed;
+    /* Placed on the page, not the window: on an iPhone's home screen the
+       window stops short of the screen's bottom (see fillScreen in main.ts). */
+    position: absolute;
     /* Above the timeline's sticky hours and day headers. */
     z-index: 20;
     left: calc(14px + env(safe-area-inset-left));
     right: calc(14px + env(safe-area-inset-right));
-    bottom: calc(14px + env(safe-area-inset-bottom));
+    /* As far from the bottom as from the sides, home bar or not. */
+    bottom: 14px;
     align-items: center;
     justify-content: space-between;
     /* Taps between the buttons reach the calendar. */
@@ -352,7 +355,8 @@ button:disabled {
      what scrolls gets this much room at its end, so its last hour, day or
      month can come up clear of them. */
   body {
-    --dock-space: calc(78px + env(safe-area-inset-bottom));
+    --dock-space: 78px;
+    position: relative;
     padding-bottom: 0;
   }
 
@@ -717,9 +721,21 @@ main.loading > * {
   color: var(--text);
   background: var(--bg);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+  /* Centred between the status bar and the home bar on phones. On an
+     iPhone home screen, iOS places dialogs in a window shorter than the
+     screen by --app-gap (see fillScreen in main.ts). */
+  top: env(safe-area-inset-top);
+  bottom: calc(env(safe-area-inset-bottom) - var(--app-gap, 0px));
+}
+
+:root {
+  /* The height a dialog can use. */
+  --dialog-room: calc(var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 }
 
 .dialog::backdrop {
+  /* Past the bottom too, in case iOS stops the window short of it. */
+  bottom: -200px;
   background: rgb(0 0 0 / 0.35);
 }
 
@@ -778,7 +794,7 @@ main.loading > * {
 
 .event-form {
   width: min(540px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  max-height: calc(var(--dialog-room) - 32px);
   overflow-y: auto;
 }
 
@@ -896,7 +912,7 @@ main.loading > * {
 
 .details {
   width: min(480px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(var(--dialog-room) - 48px);
   overflow-y: auto;
 }
 
@@ -972,7 +988,7 @@ main.loading > * {
 
 .search {
   width: min(560px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
+  max-height: calc(var(--dialog-room) - 64px);
 }
 
 /* Only while open: a closed dialog must stay hidden. */
@@ -1205,6 +1221,18 @@ main.loading > * {
   min-height: 28px;
   padding: 3px 0;
   border-bottom: 1px solid var(--border);
+}
+
+/* At most 3½ lanes; the rest scrolls into view (views/timeline.ts). Clipped,
+   not a scroller, so the sticky "all-day" label keeps working. */
+.tl-allday.overflowing {
+  max-height: calc(3px + 3.5 * 24px);
+  overflow: clip;
+  touch-action: pan-x;
+}
+
+.tl-allday.overflowing .tl-allday-item {
+  translate: 0 var(--all-day-offset, 0);
 }
 
 .tl-allday-label {

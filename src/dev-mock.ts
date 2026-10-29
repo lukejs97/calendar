@@ -136,6 +136,8 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     if (date === 1) allDay(day, "Pay rent", PERSONAL);
     if (date === 12) allDay(day, "Conference", WORK, 3);
     if (date === 20) allDay(day, "Grandma's birthday", FAMILY);
+    if (date === 28) allDay(day, "Long weekend", PERSONAL, 4);
+    if (date === 29) allDay(day, "Halloween costume shopping", FAMILY);
     if (date === 25 && day.getMonth() === 11) allDay(day, "Christmas Day", HOLIDAYS);
   }
   return items;

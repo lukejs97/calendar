@@ -166,7 +166,57 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     row.append(bar);
   }
   label.style.gridRow = `1 / span ${Math.max(1, laneEnds.length)}`;
+  enableAllDayScroll(row, laneEnds.length);
   return row;
+}
+
+/** A lane of all-day bars: 22px tall plus a 2px gap; keep in sync with .tl-allday. */
+const ALL_DAY_LANE = 24;
+
+/**
+ * More than 3½ lanes of all-day items: the row shows that much, and the rest
+ * scrolls into view (wheel or finger), every day's column together. Not a
+ * real scroller, so its "all-day" label still stays put as the days slide.
+ */
+function enableAllDayScroll(row: HTMLElement, lanes: number): void {
+  if (lanes <= 3) return;
+  row.classList.add("overflowing");
+  let offset = 0;
+  const scrollBy = (dy: number): boolean => {
+    const padding = 6; // .tl-allday's, top and bottom
+    const max = Math.max(0, lanes * ALL_DAY_LANE - 2 + padding - row.clientHeight);
+    const next = Math.min(Math.max(offset + dy, 0), max);
+    if (next === offset) return false;
+    offset = next;
+    row.style.setProperty("--all-day-offset", `${-offset}px`);
+    return true;
+  };
+
+  // At either end, the wheel goes on to scroll the hours as usual.
+  row.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      if (scrollBy(e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY)) e.preventDefault();
+    },
+    { passive: false },
+  );
+  // Fingers: up and down here (CSS leaves sideways to the browser, to slide the days).
+  let lastY: number | null = null;
+  row.addEventListener("touchstart", (e) => (lastY = e.touches.length === 1 ? e.touches[0].clientY : null), {
+    passive: true,
+  });
+  row.addEventListener(
+    "touchmove",
+    (e) => {
+      if (lastY === null || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      scrollBy(lastY - y);
+      lastY = y;
+    },
+    { passive: true },
+  );
+  row.addEventListener("touchend", () => (lastY = null));
 }
 
 function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLElement {
