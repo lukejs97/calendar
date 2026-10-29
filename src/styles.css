@@ -25,9 +25,7 @@
   font-size: 15px;
   line-height: 1.4;
   color: var(--text);
-  /* Navy behind the page (which covers it everywhere): on an iPhone's home
-     screen, iOS 26 colours the status bar from it. */
-  background: var(--chrome);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -78,6 +76,17 @@ body {
   padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Navy, like the header: iOS 26 colours a home-screen app's status bar
+   from the body's background. Below the header, the page is cream. */
+body:not(.flyout) {
+  background: var(--chrome);
+}
+
+body:not(.flyout) > #banner,
+body:not(.flyout) > main {
+  background: var(--bg);
 }
 
 button {
