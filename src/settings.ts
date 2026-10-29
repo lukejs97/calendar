@@ -1,4 +1,5 @@
 // Settings, and the "Google accounts" and "Todoist" dialogs it opens.
+import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   errorMessage,
@@ -65,6 +66,13 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     settingsRow("Todoist", todoistNote, todoist),
     settingsRow("Multi-day view", el("span", "settings-note", "Days shown at once"), days),
   );
+  // The website (web/): removing an account removes it for every device, so
+  // there's also a sign-out that only affects this browser.
+  if (!isTauri() && !import.meta.env.DEV) {
+    const signOut = el("button", "pill-button", "Sign out");
+    signOut.addEventListener("click", async () => (await import("./web-bridge")).signOutHere());
+    rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
+  }
 
   const close = el("button", "primary-button", "Done");
   close.addEventListener("click", () => dialog.close());

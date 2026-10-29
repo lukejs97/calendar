@@ -22,9 +22,9 @@ browser ──► Worker (web/src) ──► Google Calendar, Todoist
 - `../src/web-bridge.ts`: in the browser, sends the app's commands here.
 
 **Not on the web:** the menu bar window, the quick-add shortcut, alerts while
-the site is closed, and offline mode. Signing out of one browser (top bar →
-Sign out) doesn't affect other devices; removing an account under Accounts
-removes it everywhere.
+the site is closed, and offline mode. Signing out of one browser (Settings → This
+browser → Sign out) doesn't affect other devices; removing an account under
+Settings → Google accounts removes it everywhere.
 
 **Free-plan limits:** Cloudflare's free plan allows 100,000 requests a day
 and 50 outside requests per request. Each Google calendar is one outside
@@ -78,4 +78,5 @@ Copy the client ID and secret.
 To update the site later: `npm run deploy` again.
 
 Only the Google accounts in `ALLOWED_EMAILS` (`wrangler.jsonc`) can sign in.
-Once signed in, you can add other Google accounts of yours under Accounts.
+Once signed in, you can add other Google accounts of yours under Settings → Google
+accounts.

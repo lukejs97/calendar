@@ -30,7 +30,7 @@ async function send(command: string, args: unknown): Promise<unknown> {
 }
 
 /** Ends this browser's session (other devices stay signed in), then reloads. */
-async function signOutHere(): Promise<void> {
+export async function signOutHere(): Promise<void> {
   await fetch("/auth/signout", { method: "POST", credentials: "same-origin", headers: { "X-Minuteman": "1" } });
   location.reload();
 }
@@ -51,13 +51,4 @@ export function install(): void {
         return send(command, args);
     }
   });
-
-  // Removing accounts removes them for every device, so offer a sign-out
-  // that only affects this browser.
-  const button = document.createElement("button");
-  button.className = "text-button";
-  button.textContent = "Sign out";
-  button.title = "Sign out of Minuteman in this browser";
-  button.addEventListener("click", () => void signOutHere());
-  document.querySelector("#actions")?.append(button);
 }
