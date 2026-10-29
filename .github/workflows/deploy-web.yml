@@ -1,0 +1,61 @@
+# Puts the website version (web/) online on Cloudflare Workers, as
+# `npm run deploy` in web/ does on your own computer.
+#
+# Run it from the repo's Actions tab ("Deploy web app" → "Run workflow").
+#
+# Needs a repository secret (Settings → Secrets and variables → Actions):
+# CLOUDFLARE_API_TOKEN, made in Cloudflare → My Profile → API Tokens → Create
+# Token → "Edit Cloudflare Workers". If your Cloudflare login belongs to more
+# than one account, also add CLOUDFLARE_ACCOUNT_ID (Workers & Pages overview →
+# Account ID). The site's own secrets (Google client, TOKEN_KEY) stay on
+# Cloudflare from the first setup; deploying keeps them.
+
+name: Deploy web app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer one replaces one still waiting.
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN under Settings → Secrets and variables → Actions (see the top of this file)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci
+        working-directory: web
+
+      # Builds the site (../dist), then uploads it and the Worker.
+      - name: Deploy
+        working-directory: web
+        env:
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$ACCOUNT_ID" ]; then export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"; fi
+          npm run deploy

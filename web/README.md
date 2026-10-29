@@ -75,7 +75,11 @@ Copy the client ID and secret.
    `https://minuteman.<your-subdomain>.workers.dev`. Add that address's
    `/auth/google/callback` to the Google client's redirect URIs (above).
 
-To update the site later: `npm run deploy` again.
+To update the site later: `npm run deploy` again, or let GitHub do it
+(no computer needed): add a `CLOUDFLARE_API_TOKEN` repository secret, made
+in Cloudflare → My Profile → API Tokens → Create Token → **Edit Cloudflare
+Workers**, then Actions → **Deploy web app** → **Run workflow**
+(`.github/workflows/deploy-web.yml`). It deploys the branch you pick.
 
 Only the Google accounts in `ALLOWED_EMAILS` (`wrangler.jsonc`) can sign in.
 Once signed in, you can add other Google accounts of yours under Settings → Google
