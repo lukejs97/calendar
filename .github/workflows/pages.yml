@@ -1,6 +1,6 @@
 # Publishes the small website in site/ (home page and privacy policy, which
 # Google's OAuth Branding page links to) to GitHub Pages:
-# https://lukejs97.github.io/calendar/
+# https://lukejs97.github.io/minuteman/
 #
 # One-time setup: Settings → Pages → Build and deployment → Source:
 # "GitHub Actions". Then run this from the Actions tab.

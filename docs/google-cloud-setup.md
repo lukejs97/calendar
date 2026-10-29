@@ -127,10 +127,10 @@ and privacy policy for that, published with GitHub Pages:
 
 1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub
    Actions**. Then **Actions → Publish website → Run workflow**. The pages are
-   at `https://lukejs97.github.io/calendar/` (the repo's name is the last part).
+   at `https://lukejs97.github.io/minuteman/` (the repo's name is the last part).
 2. On Branding, under **App domain**: **Application home page**
-   `https://lukejs97.github.io/calendar/`, **Application privacy policy link**
-   `https://lukejs97.github.io/calendar/privacy.html`; leave Terms of service
+   `https://lukejs97.github.io/minuteman/`, **Application privacy policy link**
+   `https://lukejs97.github.io/minuteman/privacy.html`; leave Terms of service
    empty. Under **Authorized domains**, add `lukejs97.github.io`. **Save**.
 3. Hover over the greyed-out **Publish app** button on **Audience**: its tooltip
    may say what's still missing.
