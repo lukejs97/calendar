@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" alt="Minuteman's logo: a flag calendar, its navy canton of stars above red and white stripes" width="128" height="128">
-</p>
+<img src="src-tauri/icons/128x128@2x.png" alt="Minuteman's logo: a flag calendar, its navy canton of stars above red and white stripes" width="128" height="128">
 
 # Minuteman
 
