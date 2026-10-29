@@ -247,6 +247,13 @@ async function allPages<T>(token: string, url: URL): Promise<T[]> {
 const listCalendars = (token: string) =>
   allPages<CalendarListEntry>(token, new URL(`${API}/users/me/calendarList`));
 
+/** A repeating event's rules (RRULE, EXDATE and so on), from its series. Empty if it doesn't repeat. */
+export async function recurrence(token: string, calendarId: string, eventId: string): Promise<string[]> {
+  const url = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
+  url.searchParams.set("fields", "recurrence");
+  return (await google<{ recurrence?: string[] }>(token, url.toString())).recurrence ?? [];
+}
+
 /** The signed-in account's email address, which is its primary calendar's ID. */
 async function primaryEmail(token: string): Promise<string> {
   return (await google<{ id: string }>(token, `${API}/calendars/primary`)).id;

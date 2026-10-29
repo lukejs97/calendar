@@ -151,7 +151,10 @@ there with `slideTimeline` when it's among the days drawn.
   to another calendar first; `delete_event` DELETEs. For one occurrence of
   a repeating event, "all events" uses `seriesId`; editing all events
   (`update_series`) shifts the series' own start by as much as the edited
-  occurrence moved, so it keeps its first date. The `calendar.events`
+  occurrence moved, so it keeps its first date. Editing a repeating event,
+  the form fetches the series' rules (`event_recurrence`) and shows them in
+  words (`recurrence.ts`); "Doesn't repeat after this one" sends them back
+  with `UNTIL` set to that occurrence (`endAfter`). The `calendar.events`
   scope is in `google/auth.rs`; accounts added before need adding again
   once.
 - Tasks go to Todoist (`create_task`, `update_task`, `delete_task`), into

@@ -29,8 +29,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   Switch to **Task** to add a Todoist task ("Submit expenses Friday p1", "Pay
   rent every month on the 1st").
 - **Edit and delete:** click an event or task, then **Edit** or **Delete**. For
-  a repeating event, choose this event only or all of them. Guests are emailed
-  about changes if you tick the box.
+  a repeating event, choose this event only or all of them; its repeat shows
+  in words ("Every Monday", "Monthly on the second Tuesday"), and you can
+  change it or stop it after this one. Guests are emailed about changes if
+  you tick the box.
 - **Details:** time, place (with a map link), a **Join** button for Google
   Meet, Zoom, Teams or Webex calls, guests and their replies, and notes.
 - **Drag to move:** in Day and Week view, drag an event to another time or

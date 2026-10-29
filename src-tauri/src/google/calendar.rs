@@ -207,6 +207,21 @@ async fn find_events(
     Ok(CalendarEvents { items, warnings })
 }
 
+/// A repeating event's rules (RRULE, EXDATE and so on), as Google keeps them
+/// on its series. Empty if it doesn't repeat.
+pub async fn recurrence(http: &reqwest::Client, token: &str, calendar_id: &str, event_id: &str) -> Result<Vec<String>> {
+    #[derive(Deserialize)]
+    struct Series {
+        #[serde(default)]
+        recurrence: Vec<String>,
+    }
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", event_id]);
+    url.query_pairs_mut().append_pair("fields", "recurrence");
+    let series: Series = get_json(http, token, url).await?;
+    Ok(series.recurrence)
+}
+
 /// The signed-in account's email address, which is its primary calendar's ID.
 pub async fn primary_email(http: &reqwest::Client, token: &str) -> Result<String> {
     #[derive(Deserialize)]

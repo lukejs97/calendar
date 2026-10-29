@@ -216,6 +216,13 @@ async fn update_event(
     Ok(())
 }
 
+/// A repeating event's rules, from its series (`target`), to show them.
+#[tauri::command]
+async fn event_recurrence(state: State<'_, AppState>, target: EventRef) -> Result<Vec<String>> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::calendar::recurrence(&state.http, &token, &target.calendar_id, &target.event_id).await
+}
+
 /// Moves or resizes an event (dragging it).
 #[tauri::command]
 async fn set_event_times(
@@ -552,6 +559,7 @@ pub fn run() {
             set_google_calendar_shown,
             create_event,
             update_event,
+            event_recurrence,
             set_event_times,
             delete_event,
             todoist_status,

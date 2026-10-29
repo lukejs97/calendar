@@ -299,6 +299,8 @@ export function install(): void {
           calendars: i === 0 ? calendars.map(({ id, name, color, primary }) => ({ id, name, color, primary })) : [],
           error: null,
         }));
+      case "event_recurrence":
+        return ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE;TZID=America/New_York:20261102T100000"];
       case "open_at_login":
         return openAtLoginNow;
       case "set_open_at_login":

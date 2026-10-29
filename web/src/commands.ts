@@ -91,6 +91,10 @@ export const commands: Record<string, Command> = {
     else await google.updateEvent(token, calendarId, target.eventId, event, notify);
     return null;
   },
+  async event_recurrence(ctx, args) {
+    const target = value<EventRef>(args, "target");
+    return google.recurrence(await tokenFor(ctx, target.email), target.calendarId, target.eventId);
+  },
   async set_event_times(ctx, args) {
     const target = value<EventRef>(args, "target");
     const token = await tokenFor(ctx, target.email);

@@ -197,6 +197,9 @@ export const createEvent = (email: string, calendarId: string, event: EventDraft
  * emails them. `occurrence`: when editing every event in a repeating series
  * from one of them, that one's times before the edit (and `target` is the series).
  */
+/** A repeating event's rules (RRULE lines and so on), from its series (`eventRef(item, true)`). */
+export const eventRecurrence = (target: EventRef) => invoke<string[]>("event_recurrence", { target });
+
 export const updateEvent = (
   target: EventRef,
   event: EventDraft,

@@ -7,6 +7,7 @@ import {
   createTask,
   errorMessage,
   eventCalendars,
+  eventRecurrence,
   eventRef,
   todoistProjects,
   todoistStatus,
@@ -20,6 +21,7 @@ import {
 } from "./api";
 import { el } from "./dom";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
+import { describeRecurrence, endAfter } from "./recurrence";
 import { addDays, itemEnd, itemStart, localTimeZone, parseDate, toDateString, toLocalIso } from "./time";
 
 export type Mode = "event" | "task";
@@ -172,6 +174,8 @@ class Form {
   private projectsRequested = false;
   /** A repeat in Todoist's own words, from the sentence. */
   private taskRepeat: string | null = null;
+  /** A repeating event's series' rules, once fetched (to show them, or end them). */
+  private seriesRules: string[] | null = null;
 
   constructor(
     private onSaved: (saved: Saved) => void,
@@ -456,11 +460,16 @@ class Form {
     if (minutes !== undefined && !known) this.alert.append(option(String(minutes), `${minutes} minutes before`));
     this.alert.value = minutes === undefined ? "default" : String(minutes);
     if (this.inSeries()) {
-      // Which rule it repeats by isn't known here; "keep" leaves it be. Not
-      // repeating any more is Delete → All events (or this one) instead.
+      // "keep" leaves the series' rule be; it's shown in words once fetched.
+      // "end" makes this the last one (the ones before it stay).
       this.repeat.querySelector('option[value=""]')?.remove();
-      this.repeat.prepend(option("keep", "Repeats (as now)"));
+      const keep = option("keep", "Repeats (as now)");
+      this.repeat.prepend(keep, option("end", "Doesn't repeat after this one"));
       this.repeat.value = "keep";
+      void this.seriesRecurrence().then((rules) => {
+        const words = rules && describeRecurrence(rules, itemStart(item));
+        if (words) keep.textContent = words;
+      });
     } else if (item.recurring) {
       this.repeat.replaceChildren(option("", "Repeats"));
       this.repeat.disabled = true;
@@ -628,6 +637,9 @@ class Form {
     if (item?.recurring) {
       const repeat = this.repeat.value;
       if (this.wholeSeries() && repeat in REPEAT_RULES) recurrence = [REPEAT_RULES[repeat as Repeat]];
+      if (this.wholeSeries() && repeat === "end" && this.seriesRules) {
+        recurrence = endAfter(this.seriesRules, itemStart(item), item.allDay);
+      }
     } else if (editing("repeat")) {
       const repeat = this.repeat.value as Repeat | "";
       recurrence = repeat ? [REPEAT_RULES[repeat]] : item ? [] : null;
@@ -675,6 +687,10 @@ class Form {
   }
 
   private async saveEvent(): Promise<void> {
+    // Ending the series needs its rules; fetch them now if they aren't yet.
+    if (this.repeat.value === "end" && !(await this.seriesRecurrence())) {
+      throw new Error("Couldn't read how this event repeats, to end it. Try again.");
+    }
     const draft = this.eventDraft();
     const choice = this.calendarChoices[Number(this.calendar.value)];
     if (!this.item) {
@@ -693,6 +709,14 @@ class Form {
       : null;
     const notify = this.notifyGuests.checked && !this.notifyRow.hidden;
     await updateEvent(eventRef(item, whole), draft, moveTo, notify, occurrence);
+  }
+
+  /** The series' rules (fetched once); null if they couldn't be. */
+  private async seriesRecurrence(): Promise<string[] | null> {
+    if (!this.seriesRules && this.item) {
+      this.seriesRules = await eventRecurrence(eventRef(this.item, true)).catch(() => null);
+    }
+    return this.seriesRules;
   }
 
   /** One event of a repeating Google series, being edited. */
