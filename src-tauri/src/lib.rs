@@ -332,6 +332,15 @@ fn show_main(app: AppHandle) {
     let _ = app;
 }
 
+/// Detaches the menu bar window into a window of its own, or puts it back.
+#[tauri::command]
+fn set_flyout_detached(app: AppHandle, detached: bool) {
+    #[cfg(desktop)]
+    desktop::set_flyout_detached(&app, detached);
+    #[cfg(mobile)]
+    let _ = (app, detached);
+}
+
 fn parse_date(s: &str) -> Result<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map_err(|_| AppError::InvalidInput(format!("not a YYYY-MM-DD date: {s:?}")))
@@ -414,8 +423,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_positioner::init());
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
@@ -462,6 +470,7 @@ pub fn run() {
             delete_task,
             set_task_completed,
             show_main,
+            set_flyout_detached,
             get_preferences,
             set_preferences,
             apple_status,

@@ -42,7 +42,6 @@ thiserror = "2"
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
 # Mac only: Apple Calendar and Reminders (EventKit), and travel times for
 # "time to leave" alerts (Core Location, MapKit).

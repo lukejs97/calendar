@@ -15,6 +15,7 @@ import {
   timeFormat,
   toDateString,
 } from "../time";
+import { enableCreate } from "./create";
 import type { ViewContext } from "./types";
 
 /** Height of one item line in px. Must match --month-line in styles.css. */
@@ -89,6 +90,12 @@ export function renderMonth(root: HTMLElement, ctx: ViewContext): void {
     grid.append(cell);
     cells.push({ day, list });
   }
+
+  // Double-click or right-click a day for New event or task on it.
+  enableCreate(grid, ctx, (e) => {
+    const date = (e.target as Element).closest<HTMLElement>(".month-cell")?.dataset.date;
+    return date ? { start: parseDate(date), allDay: true } : null;
+  });
 
   view.append(weekdays, grid);
   root.replaceChildren(view);

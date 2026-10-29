@@ -26,6 +26,7 @@ import {
   overlaps,
   timeFormat,
 } from "../time";
+import { enableCreate } from "./create";
 import { enableDayDrag } from "./drag";
 import type { ViewContext } from "./types";
 
@@ -50,48 +51,64 @@ const DRAG_THRESHOLD = 4;
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const hourFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric" });
 
-/** The part of a timed event that falls on one day, and where it sits side by side. */
+/** The part of a timed event that falls on one day, and where it sits. */
 interface Segment {
   item: AgendaItem;
   start: number;
   end: number;
+  /** Side by side with events that start at about the same time. */
   column: number;
   columns: number;
+  /** Drawn over events it starts well after, this many steps in from the left. */
+  indent: number;
 }
 
+/** px each step of `Segment.indent` moves an event in. */
+const INDENT = 14;
+/** At most this many steps in, so a busy day stays readable. */
+const MAX_INDENT = 4;
 /**
- * Places overlapping events side by side. Events are grouped into clusters of
- * ones that (transitively) overlap; each takes the first free column in its
- * cluster, and everything in a cluster shares its width equally.
+ * An event starting at least this many px (a line) below another that's
+ * still on leaves the other's title showing, so it's drawn on top
+ * (indented), as in Apple's Calendar, rather than both squeezed side by side.
+ */
+const ROOM_FOR_TITLE = 20;
+
+/**
+ * Lays out the day's timed events. One that starts well after an event
+ * that's still on goes on top of it, a step in from the left; ones starting
+ * at about the same time share the width side by side, in a group.
  */
 function layoutColumns(segments: Segment[]): void {
   segments.sort((a, b) => a.start - b.start || b.end - a.end);
-  let cluster: Segment[] = [];
-  let columnEnds: number[] = [];
-  let clusterEnd = -Infinity;
-
-  const closeCluster = () => {
-    for (const seg of cluster) seg.columns = columnEnds.length;
-    cluster = [];
-    columnEnds = [];
-  };
+  // Use the drawn height, so tiny events that look overlapping are treated so.
+  const visualEnd = (seg: Segment) => Math.max(seg.end, seg.start + minEventMs());
+  const titleRoom = Math.max((ROOM_FOR_TITLE / hourHeight) * MS_PER_HOUR, 15 * MS_PER_MINUTE);
+  const groupOf = new Map<Segment, { columnEnds: number[]; members: Segment[] }>();
+  const placed: Segment[] = [];
 
   for (const seg of segments) {
-    // Use the drawn height, so tiny events that look overlapping are treated so.
-    const visualEnd = Math.max(seg.end, seg.start + minEventMs());
-    if (seg.start >= clusterEnd) closeCluster();
-    let column = columnEnds.findIndex((end) => end <= seg.start);
-    if (column === -1) {
-      column = columnEnds.length;
-      columnEnds.push(visualEnd);
+    const under = placed.filter((p) => p.start < visualEnd(seg) && visualEnd(p) > seg.start);
+    const close = under.find((p) => seg.start - p.start < titleRoom);
+    if (close) {
+      // Starts with `close`: side by side with its group.
+      const group = groupOf.get(close)!;
+      seg.indent = close.indent;
+      let column = group.columnEnds.findIndex((end) => end <= seg.start);
+      if (column === -1) column = group.columnEnds.push(0) - 1;
+      group.columnEnds[column] = visualEnd(seg);
+      seg.column = column;
+      group.members.push(seg);
+      groupOf.set(seg, group);
     } else {
-      columnEnds[column] = visualEnd;
+      // Starts on its own, or well after everything still on: on top of them.
+      seg.indent = under.length ? Math.min(MAX_INDENT, Math.max(...under.map((p) => p.indent)) + 1) : 0;
+      seg.column = 0;
+      groupOf.set(seg, { columnEnds: [visualEnd(seg)], members: [seg] });
     }
-    seg.column = column;
-    cluster.push(seg);
-    clusterEnd = Math.max(clusterEnd, visualEnd);
+    placed.push(seg);
   }
-  closeCluster();
+  for (const seg of segments) seg.columns = groupOf.get(seg)!.columnEnds.length;
 }
 
 function positionNowLine(line: HTMLElement): void {
@@ -167,6 +184,15 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
   }
   label.style.gridRow = `1 / span ${Math.max(1, laneEnds.length)}`;
   enableAllDayScroll(row, laneEnds.length);
+  // Double-click or right-click under a day for an all-day item on it.
+  enableCreate(row, ctx, (e) => {
+    const headers = [...row.parentElement!.querySelectorAll<HTMLElement>(".tl-day-header")];
+    const index = headers.findIndex((h) => {
+      const r = h.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX < r.right;
+    });
+    return index >= 0 ? { start: days[index], allDay: true } : null;
+  });
   return row;
 }
 
@@ -174,13 +200,16 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
 const ALL_DAY_LANE = 24;
 
 /**
- * More than 3½ lanes of all-day items: the row shows that much, and the rest
- * scrolls into view (wheel or finger), every day's column together. Not a
- * real scroller, so its "all-day" label still stays put as the days slide.
+ * More lanes of all-day items than fit (3½ on a phone, 7½ in a wider
+ * window): the row shows that many, and the rest scrolls into view (wheel
+ * or finger), every day's column together. Not a real scroller, so its
+ * "all-day" label still stays put as the days slide.
  */
 function enableAllDayScroll(row: HTMLElement, lanes: number): void {
-  if (lanes <= 3) return;
+  const shown = window.matchMedia("(max-width: 640px)").matches ? 3.5 : 7.5;
+  if (lanes <= Math.floor(shown)) return;
   row.classList.add("overflowing");
+  row.style.setProperty("--all-day-lanes", String(shown));
   let offset = 0;
   const scrollBy = (dy: number): boolean => {
     const padding = 6; // .tl-allday's, top and bottom
@@ -229,8 +258,9 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
   const height = Math.max(MIN_EVENT_HEIGHT, ((seg.end - seg.start) / MS_PER_HOUR) * hourHeight);
   block.style.top = timeLength(seg.start - dayStart);
   block.style.height = `max(${MIN_EVENT_HEIGHT}px, ${timeLength(seg.end - seg.start)})`;
-  block.style.left = `${(seg.column / seg.columns) * 100}%`;
-  block.style.width = `calc(${100 / seg.columns}% - 2px)`;
+  const inset = seg.indent * INDENT;
+  block.style.left = `calc(${inset}px + (100% - ${inset}px) * ${seg.column / seg.columns})`;
+  block.style.width = `calc((100% - ${inset}px) / ${seg.columns} - 2px)`;
 
   const start = timeFormat.format(itemStart(item));
   if (height < 34) {
@@ -241,7 +271,8 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     // Tasks often have a due time but no duration: show just the time.
     const range = seg.end > seg.start ? `${start} – ${timeFormat.format(itemEnd(item))}` : start;
     block.append(el("div", "tl-event-title", item.title), el("div", "tl-event-time", range));
-    if (item.location && height >= 56) block.append(el("div", "tl-event-time", item.location));
+    // From an hour long (at the usual size) there's room for the place too.
+    if (item.location && height >= 44) block.append(el("div", "tl-event-time tl-event-place", item.location));
   }
   decorateTask(block, item, ctx.toggleTask);
   makeOpenable(block, item, ctx.openItem);
@@ -358,9 +389,17 @@ function dayColumn(ctx: ViewContext, day: Date): HTMLElement {
       end: Math.min(itemEnd(item).getTime(), next.getTime()),
       column: 0,
       columns: 1,
+      indent: 0,
     }));
   layoutColumns(segments);
   for (const seg of segments) column.append(eventBlock(seg, dayStart, ctx));
+  // Double-click or right-click an empty spot for an item then (15-minute steps).
+  enableCreate(column, ctx, (e) => {
+    const y = e.clientY - column.getBoundingClientRect().top;
+    const minutes = Math.floor(((y / hourHeight) * 60) / SNAP_MINUTES) * SNAP_MINUTES;
+    const clamped = Math.min(Math.max(minutes, 0), 24 * 60 - SNAP_MINUTES);
+    return { start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, clamped), allDay: false };
+  });
   return column;
 }
 

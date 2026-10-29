@@ -69,8 +69,14 @@ interface CalendarChoice {
 }
 
 /** Opens the New window. */
-export function openNew(onSaved: (saved: Saved) => void, mode: Mode = "event"): void {
-  new Form(onSaved, mode, null).open();
+/** A day (and maybe a time) to add at, e.g. where you double-clicked. */
+export interface At {
+  start: Date;
+  allDay: boolean;
+}
+
+export function openNew(onSaved: (saved: Saved) => void, mode: Mode = "event", at: At | null = null): void {
+  new Form(onSaved, mode, null, at).open();
 }
 
 /** Opens the Edit window for an event or task. */
@@ -172,6 +178,8 @@ class Form {
     private mode: Mode,
     /** The item being edited; null when adding. */
     private item: AgendaItem | null,
+    /** When adding: the day (and time) chosen, if any; a date in the sentence wins. */
+    private at: At | null = null,
   ) {}
 
   open(): void {
@@ -403,13 +411,26 @@ class Form {
   }
 
   private fillDefaults(): void {
-    // The next whole hour, for an hour.
-    const start = new Date();
-    start.setHours(start.getHours() + 1, 0, 0, 0);
-    this.setWhen(start, new Date(start.getTime() + 60 * 60 * 1000), false);
+    const { at } = this;
+    if (at?.allDay) {
+      this.setWhen(at.start, addDays(at.start, 1), true);
+    } else {
+      // The time chosen, or else the next whole hour; for an hour.
+      const start = at ? new Date(at.start) : new Date();
+      if (!at) start.setHours(start.getHours() + 1, 0, 0, 0);
+      this.setWhen(start, new Date(start.getTime() + 60 * 60 * 1000), false);
+    }
+    this.fillDueFromAt();
     this.alert.value = "default";
     this.priority.value = "4";
     this.showTaskRepeat();
+  }
+
+  /** A new task's due date (and time) from the day chosen, if any. */
+  private fillDueFromAt(): void {
+    if (!this.at) return;
+    this.dueDate.value = toDateString(this.at.start);
+    this.dueTime.value = this.at.allDay ? "" : timeString(this.at.start);
   }
 
   private fillFromItem(item: AgendaItem): void {
@@ -474,8 +495,12 @@ class Form {
       if (!this.touched.has("title")) this.taskName.value = parsed.title;
       if (!this.touched.has("due")) {
         this.taskRepeat = parsed.repeat;
-        this.dueDate.value = parsed.due ? toDateString(parsed.due.start) : "";
-        this.dueTime.value = parsed.due && !parsed.due.allDay ? timeString(parsed.due.start) : "";
+        if (parsed.due || !this.at) {
+          this.dueDate.value = parsed.due ? toDateString(parsed.due.start) : "";
+          this.dueTime.value = parsed.due && !parsed.due.allDay ? timeString(parsed.due.start) : "";
+        } else {
+          this.fillDueFromAt(); // no date in the sentence: the day chosen
+        }
         this.showTaskRepeat();
       }
       if (!this.touched.has("priority")) this.priority.value = String(parsed.priority ?? 4);

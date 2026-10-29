@@ -129,7 +129,10 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       timed(day, "Quick sync", WORK, 11.75, 30);
     }
     if (weekday === 3) timed(day, "Dentist", PERSONAL, 14, 60, "123 Main St");
-    if (weekday === 4) timed(day, "1:1 with Alex", WORK, 15, 30);
+    if (weekday === 4) {
+      timed(day, "Offsite", WORK, 9, 8 * 60, "Town Hall");
+      timed(day, "1:1 with Alex", WORK, 15, 30);
+    }
     if (weekday === 5) timed(day, "Drinks", PERSONAL, 18, 120);
     if (weekday === 6) timed(day, "Late show", PERSONAL, 22, 180); // runs past midnight
     if (weekday === 0) timed(day, "Family dinner", FAMILY, 18.5, 90);

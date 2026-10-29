@@ -28,4 +28,9 @@ export interface ViewContext {
    * `settled` once they've stopped moving.
    */
   slid?(first: Date, settled: boolean): void;
+  /**
+   * Opens New event (or task) at `start`: a time in day and week views, or
+   * a whole day (`allDay`). From double-clicking or right-clicking an empty spot.
+   */
+  create?(start: Date, allDay: boolean, mode: "event" | "task"): void;
 }

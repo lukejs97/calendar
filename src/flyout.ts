@@ -11,6 +11,7 @@ import {
   getAgenda,
   getSavedAgenda,
   isNotSignedIn,
+  setFlyoutDetached,
   setTaskCompleted,
   showMain,
   type Agenda,
@@ -33,6 +34,8 @@ import {
 } from "./time";
 import { renderAgenda } from "./views/agenda";
 
+/** How often to check for changes made elsewhere while it's open. */
+const SYNC_EVERY_MS = 60 * 1000;
 /** Days listed under the month: the chosen one and the six after it. */
 const LIST_DAYS = 7;
 
@@ -78,6 +81,8 @@ async function load(): Promise<void> {
 }
 
 function show(loaded: Agenda): void {
+  // Nothing new: leave it be (and the list where you'd scrolled it).
+  if (agenda && JSON.stringify(agenda) === JSON.stringify(loaded)) return;
   agenda = loaded;
   banner.replaceChildren(...loaded.warnings.map((w) => el("p", "warning", `Couldn't load ${w}`)));
   if (loaded.offlineSince) banner.prepend(el("p", "warning", "No internet. Showing saved events."));
@@ -90,20 +95,56 @@ function draw(): void {
   root.replaceChildren(header(today), miniMonth(items, today), list(items));
 }
 
+/** Icons for the header's buttons (fixed markup, no user text). */
+const ICONS = {
+  add: '<path d="M12 4.5v15M4.5 12h15" />',
+  // A window with an arrow out of it, and back in.
+  detach: '<path d="M14 4h6v6M20 4l-8 8" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />',
+  attach: '<path d="M11 13l9-9M11 7v6h6" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />',
+  close: '<path d="M6 6l12 12M18 6 6 18" />',
+};
+
+function iconButton(icon: keyof typeof ICONS, label: string, onClick: () => void): HTMLButtonElement {
+  const button = el("button", "icon-button");
+  button.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[icon]}</svg>`;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", onClick);
+  return button;
+}
+
 function header(today: Date): HTMLElement {
   const head = el("header", "flyout-head");
   const titles = el("div");
   titles.append(el("h1", "flyout-title", "Today"), el("p", "flyout-date", todayTitle.format(today)));
-  const add = el("button", "icon-button", "+");
-  add.title = "New event (⌥⌘N)";
-  add.setAttribute("aria-label", "New event");
-  add.addEventListener("click", newEvent);
+  // Dragging the header moves the window, which detaches it (the Rust side
+  // notices the move).
+  head.addEventListener("mousedown", (e) => {
+    if (isTauri() && e.button === 0 && e.detail === 1 && !(e.target as Element).closest("button")) {
+      e.preventDefault();
+      void getCurrentWebviewWindow().startDragging();
+    }
+  });
+  const add = iconButton("add", "New event (⌥⌘N)", newEvent);
+  // Only one of these two shows, by whether the window is detached.
+  const detachButton = iconButton("detach", "Detach into its own window", () => void detach(true));
+  detachButton.classList.add("fly-detach");
+  const attachButton = iconButton("attach", "Put back under the menu bar icon", () => void detach(false));
+  attachButton.classList.add("fly-attach");
+  const close = iconButton("close", "Close", () => void getCurrentWebviewWindow().hide());
+  close.classList.add("fly-close");
   const open = el("button", "text-button", "Open Minuteman");
   open.addEventListener("click", () => void showMain());
   const buttons = el("div", "actions");
-  buttons.append(add, open);
+  buttons.append(add, isTauri() ? detachButton : "", isTauri() ? attachButton : "", open, close);
   head.append(titles, buttons);
   return head;
+}
+
+/** Detaches the window (it stays open, where you put it) or puts it back. */
+async function detach(detached: boolean): Promise<void> {
+  document.body.classList.toggle("detached", detached);
+  await setFlyoutDetached(detached);
 }
 
 function miniMonth(items: AgendaItem[], today: Date): HTMLElement {
@@ -216,12 +257,13 @@ function showSignedOut(): void {
 export async function startFlyout(): Promise<void> {
   document.body.classList.add("flyout");
   // Its own header replaces the main window's.
-  for (const node of document.querySelectorAll<HTMLElement>(".topbar, #toolbar")) node.hidden = true;
+  for (const node of document.querySelectorAll<HTMLElement>(".chrome")) node.hidden = true;
 
   if (isTauri()) {
     void listen("flyout-shown", () => {
       if (!document.querySelector("dialog[open]")) reset();
     });
+    void listen("flyout-detached", () => document.body.classList.add("detached"));
     void listen("flyout-new", () => {
       document.querySelector<HTMLDialogElement>("dialog[open]")?.close();
       reset();
@@ -229,6 +271,9 @@ export async function startFlyout(): Promise<void> {
     });
   }
   onChangeElsewhere(() => void load());
+  window.setInterval(() => {
+    if (!document.hidden && agenda && !document.querySelector("dialog[open]")) void load();
+  }, SYNC_EVERY_MS);
 
   // Esc closes it, like a menu (once any popup in it is closed).
   document.addEventListener("keydown", (e) => {

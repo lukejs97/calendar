@@ -11,7 +11,8 @@ version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
   Month, Year and Agenda, for all your Google accounts' calendars together.
   The multi-day and week views slide through the days (two fingers on a
   trackpad, or a finger on a phone), as in Apple's Calendar.
-- **Add in a sentence:** click **+** (or press `N`) and type something like
+- **Add in a sentence:** click **+** (or press `N`), or double-click a day or
+  time (right-click for New Event or New Task), and type something like
   "Lunch with Sam tomorrow 1pm at Cafe Roma", "Standup every weekday at 9:30
   with ana@example.com" or "Conference Nov 12-14 in Berlin, remind me 1 day
   before". The fields below fill in as you type; change any of them by hand
@@ -34,7 +35,11 @@ version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
   (Ctrl+Alt+N on Windows) adds an event from any app. Closing the window keeps
   Minuteman running there; quit from the icon's right-click menu or with ⌘Q.
   The next event shows beside the icon ("Standup in 12 min"); turn it off in
-  Settings.
+  Settings. Resize the small window from its edges; drag it (or click its
+  detach button) to keep it open as a window of its own.
+- **Stays in sync:** changes made elsewhere (Google Calendar, Todoist, your
+  phone) show up within a minute while Minuteman is open, and as soon as you
+  come back to it.
 - **Alerts** at each event's reminder times from Google Calendar, also with
   the window closed.
 - **Time to leave** (Mac; Settings → Time to leave): for events at a real

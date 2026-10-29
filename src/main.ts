@@ -18,12 +18,13 @@ import {
 } from "./api";
 import { openDetails } from "./details";
 import { el } from "./dom";
-import { openEdit, openNew } from "./event-form";
+import { openEdit, openNew, type At } from "./event-form";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { openSettings } from "./settings";
 import {
   addDays,
+  isSameDay,
   itemEnd,
   itemStart,
   localTimeZone,
@@ -36,7 +37,8 @@ import {
 } from "./time";
 import { slideTimeline, slidingDays, VIEW_ORDER, viewLabel, VIEWS, type ViewName } from "./views";
 
-const REFRESH_EVERY_MS = 5 * 60 * 1000;
+/** How often to check Google and Todoist for changes while the window's in view. */
+const SYNC_EVERY_MS = 60 * 1000;
 const CACHE_LIMIT = 24;
 const VIEW_STORAGE_KEY = "calendar.view";
 
@@ -64,7 +66,8 @@ let shown: { view: ViewName; range: string; agenda: Agenda } | undefined;
 let latestRequest = 0;
 /** A just-added event's start, to scroll into view on the next draw. */
 let reveal: Date | undefined;
-let refreshTimer: number | undefined;
+let syncTimer: number | undefined;
+let lastSync = 0;
 
 function savedView(): ViewName {
   try {
@@ -124,6 +127,7 @@ function render(agenda: Agenda): void {
     openItem: showDetails,
     moveItem,
     slid,
+    create: (start, allDay, mode) => newEvent(mode, { start, allDay }),
   });
   shown = { view: state.view, range: key, agenda };
 }
@@ -272,6 +276,32 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * Checks Google and Todoist for changes made elsewhere, and redraws only if
+ * there are any. Runs every minute, and when the window comes back into
+ * view or back online; not while it's hidden, or while you're dragging
+ * something or have a menu open.
+ */
+async function sync(): Promise<void> {
+  if (document.hidden || !shown || document.querySelector(".dragging, .context-menu")) return;
+  if (Date.now() - lastSync < SYNC_EVERY_MS / 4) return;
+  lastSync = Date.now();
+  const { from, to, key } = currentRange();
+  const request = latestRequest;
+  try {
+    const agenda = await getAgenda(toDateString(from), toDateString(to));
+    // Something else loaded meanwhile (you moved on, or changed something).
+    if (request !== latestRequest) return;
+    cache.delete(key);
+    cache.set(key, agenda);
+    if (shown?.range === key && JSON.stringify(shown.agenda) === JSON.stringify(agenda)) return;
+    if (document.querySelector(".dragging, .context-menu")) return;
+    render(agenda);
+  } catch {
+    // Offline or the like: the next try, or a refresh, says so.
+  }
+}
+
 function goTo(view: ViewName, date: Date): void {
   state.view = view;
   state.anchor = firstDay(view, date);
@@ -317,12 +347,12 @@ function showCalendar(): void {
   dock.hidden = false;
   app.replaceChildren(el("p", "empty", "Loading…"));
   void load();
-  window.clearInterval(refreshTimer);
-  refreshTimer = window.setInterval(load, REFRESH_EVERY_MS);
+  window.clearInterval(syncTimer);
+  syncTimer = window.setInterval(sync, SYNC_EVERY_MS);
 }
 
 function showSignedOut(error?: string): void {
-  window.clearInterval(refreshTimer);
+  window.clearInterval(syncTimer);
   latestRequest++; // ignore any request still in flight
   cache.clear();
   toggledTasks.clear();
@@ -372,14 +402,20 @@ function showDetails(item: AgendaItem): void {
 }
 
 /** Opens "New event" (or task); once it's added, shows the day it's on. */
-function newEvent(): void {
-  openNew(({ start, allDay }) => {
-    cache.clear();
-    announceChange();
-    if (!start) return void load(); // a task without a date isn't on the calendar
-    if (!allDay) reveal = start;
-    goTo(state.view, start);
-  });
+function newEvent(mode: "event" | "task" = "event", at: At | null = null): void {
+  openNew(
+    ({ start, allDay }) => {
+      cache.clear();
+      announceChange();
+      // A task without a date isn't on the calendar; one added where you
+      // clicked is already on screen.
+      if (!start || (at && isSameDay(start, at.start))) return void load();
+      if (!allDay) reveal = start;
+      goTo(state.view, start);
+    },
+    mode,
+    at,
+  );
 }
 
 /** Opens search; a chosen result shows its day, then its details. */
@@ -498,13 +534,14 @@ function setUpControls(): void {
   title.addEventListener("click", () => {
     if (!toolbar.hidden) showDate(new Date());
   });
+  document.querySelector("#today")!.addEventListener("click", () => showDate(new Date()));
   document.querySelector("#prev")!.addEventListener("click", () => step(-1));
   document.querySelector("#next")!.addEventListener("click", () => step(1));
   refreshButton.addEventListener("click", load);
-  document.querySelector("#new-event")!.addEventListener("click", newEvent);
+  document.querySelector("#new-event")!.addEventListener("click", () => newEvent());
   document.querySelector("#search")!.addEventListener("click", searchEvents);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
-  document.querySelector("#dock-new")!.addEventListener("click", newEvent);
+  document.querySelector("#dock-new")!.addEventListener("click", () => newEvent());
   document.querySelector("#dock-search")!.addEventListener("click", searchEvents);
   setUpMenu();
   placeArrows();
@@ -608,6 +645,9 @@ async function start(): Promise<void> {
 
   setUpControls();
   // Changed in the menu bar window: show it here too.
+  document.addEventListener("visibilitychange", () => void sync());
+  window.addEventListener("focus", () => void sync());
+  window.addEventListener("online", () => void sync());
   onChangeElsewhere(() => {
     if (toolbar.hidden) return;
     cache.clear();

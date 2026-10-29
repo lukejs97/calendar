@@ -63,12 +63,21 @@ Design rules:
 Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 
 - A `TrayIconBuilder` icon (`icons/tray.png`: the logo in colour, rendered
-  from `icons/source/tray.svg`, the icon artwork cropped to its tile). Left click toggles the `flyout` window;
-  right click shows Open / New Event… / Quit.
-- The `flyout` window is built in `setup` (380×600, no frame, always on
-  top, hidden) and loads the same page with `window.__MINUTEMAN_FLYOUT__`
-  set, so `main.ts` hands over to `flyout.ts`. `tauri-plugin-positioner`
-  puts it under the icon; it hides when it loses focus or on Esc.
+  from `icons/source/tray.svg`, the icon artwork cropped to its tile, at 60
+  of 72 px so the menu bar's 18 pt shows a 15 pt tile level with the text
+  beside it). Left click toggles the `flyout` window; right click shows
+  Open / New Event… / Quit.
+- The `flyout` window is built in `setup` (380×600, resizable, no frame,
+  always on top, hidden) and loads the same page with
+  `window.__MINUTEMAN_FLYOUT__` set, so `main.ts` hands over to
+  `flyout.ts`. `place_under_icon` puts it under the icon, on the screen the
+  icon is on (its last click or hover gives its place, in that screen's
+  pixels; on a Mac, where windows are placed in points and screens can
+  differ in scale, the screen is the one the pointer is on); it hides when
+  it loses focus or on Esc.
+- Detaching (its header's button, or dragging it: a `Moved` event the app
+  didn't cause) makes it an ordinary window that stays where you put it and
+  stays open; the header then has put-back and close buttons.
 - `tauri-plugin-global-shortcut` registers ⌥⌘N, which shows the flyout
   and emits `flyout-new` to open New event in it.
 - Closing the main window hides it (`CloseRequested` → `prevent_close`);
@@ -173,6 +182,18 @@ there with `slideTimeline` when it's among the days drawn.
   sleep). It runs in Rust, so it keeps going with no window open. Desktop
   only via `tauri-plugin-notification`; iPhone alerts would need scheduling
   ahead with iOS.
+- **Sync** (`main.ts` `sync`, `flyout.ts`): the open window fetches its
+  range again every minute, and on focus, `visibilitychange` and `online`;
+  it redraws only if the answer differs from what's drawn, and skips while
+  hidden, dragging or with a menu open. (Google push notifications need a
+  public web address to call, which a desktop app doesn't have.)
+- **Creating from the grid** (`views/create.ts`): double-click a day or a
+  time (snapped to 15 minutes) for New event there; right-click for a menu
+  of New Event / New Task. `openNew` takes the place clicked as `At`.
+- **Overlaps** (`views/timeline.ts` `layoutColumns`): events starting
+  within a title's height of each other share the width side by side;
+  a later one starting inside another is drawn over it, indented, as in
+  Apple's Calendar.
 - **Offline** (`cache.rs`): each successful fetch replaces the saved items
   in its range for the sources that loaded; `get_agenda` falls back to them
   on network errors (`offlineSince` drives the banner), and
