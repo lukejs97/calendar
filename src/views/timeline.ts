@@ -26,6 +26,7 @@ import {
   MS_PER_MINUTE,
   overlaps,
   timeFormat,
+  toDateString,
 } from "../time";
 import { dayButton, enableCreate } from "./create";
 import { enableDayDrag } from "./drag";
@@ -224,32 +225,64 @@ function enableAllDayScroll(row: HTMLElement, lanes: number): void {
     row.style.setProperty("--all-day-offset", `${-offset}px`);
     return true;
   };
+  allDayScrollers.set(row, scrollBy);
 
-  // At either end, the wheel goes on to scroll the hours as usual.
+  // Scrolling up or down here scrolls just this row, never the hours or the
+  // days as well; sideways still slides the days.
   row.addEventListener(
     "wheel",
     (e) => {
-      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      if (scrollBy(e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY)) e.preventDefault();
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX) || wheelGesture(e) !== row) return;
+      e.preventDefault();
+      scrollBy(e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY);
     },
     { passive: false },
   );
-  // Fingers: up and down here (CSS leaves sideways to the browser, to slide the days).
-  let lastY: number | null = null;
-  row.addEventListener("touchstart", (e) => (lastY = e.touches.length === 1 ? e.touches[0].clientY : null), {
-    passive: true,
-  });
+  // A finger: the way it first moves decides. Up or down scrolls this row
+  // alone (the browser is stopped from scrolling anything else); sideways is
+  // left to the browser, to slide the days.
+  let touch: { x: number; y: number; vertical: boolean | null } | null = null;
+  row.addEventListener(
+    "touchstart",
+    (e) => (touch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, vertical: null } : null),
+    { passive: true },
+  );
   row.addEventListener(
     "touchmove",
     (e) => {
-      if (lastY === null || e.touches.length !== 1) return;
-      const y = e.touches[0].clientY;
-      scrollBy(lastY - y);
-      lastY = y;
+      if (!touch || e.touches.length !== 1) return;
+      const { clientX: x, clientY: y } = e.touches[0];
+      if (touch.vertical === null) {
+        const [dx, dy] = [Math.abs(x - touch.x), Math.abs(y - touch.y)];
+        if (dx + dy < 6) return; // not clearly one way or the other yet
+        touch.vertical = dy >= dx;
+      }
+      if (!touch.vertical) return;
+      e.preventDefault();
+      scrollBy(touch.y - y);
+      touch.x = x;
+      touch.y = y;
     },
-    { passive: true },
+    { passive: false },
   );
-  row.addEventListener("touchend", () => (lastY = null));
+  row.addEventListener("touchend", () => (touch = null));
+  row.addEventListener("touchcancel", () => (touch = null));
+}
+
+/** Each overflowing all-day row's own scrolling, for wheel gestures that began on it. */
+const allDayScrollers = new WeakMap<EventTarget, (dy: number) => boolean>();
+
+/**
+ * Where the current trackpad or wheel gesture began: its events keep going
+ * (with momentum) after the pointer moves on, and should keep scrolling
+ * what they started on, not something else they pass over.
+ */
+let wheelStart: { target: EventTarget | null; at: number } = { target: null, at: 0 };
+function wheelGesture(e: WheelEvent): EventTarget | null {
+  const now = e.timeStamp;
+  if (now - wheelStart.at > 150) wheelStart = { target: e.currentTarget, at: now };
+  else wheelStart.at = now;
+  return wheelStart.target;
 }
 
 function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLElement {
@@ -407,6 +440,53 @@ function dayColumn(ctx: ViewContext, day: Date): HTMLElement {
   return column;
 }
 
+/** Zooming to fit never shows fewer hours than this (a lone hour-long event isn't blown up). */
+const MIN_FIT_HOURS = 8;
+/** ...nor makes an hour taller than this, in px. */
+const MAX_FIT_HEIGHT = 96;
+/** Hours shown for days with nothing at a time of day. */
+const QUIET_HOURS: [number, number] = [8, 18];
+
+/**
+ * The hours worth seeing on `days`: from a little before their first timed
+ * item to a little after their last, whole hours, at least `MIN_FIT_HOURS`.
+ */
+function busyHours(items: AgendaItem[], days: Date[]): [number, number] {
+  let [from, to] = [24, 0];
+  for (const day of days) {
+    const [start, next] = [day.getTime(), addDays(day, 1)];
+    for (const item of items) {
+      if (isAllDayLike(item) || !overlaps(item, day, next)) continue;
+      const itemFrom = itemStart(item).getTime();
+      // A task at a time has no length; count half an hour.
+      const itemTo = Math.max(itemEnd(item).getTime(), itemFrom + 30 * MS_PER_MINUTE);
+      // The small hours of last night's late event don't count.
+      if (itemFrom < start && itemTo <= start + 6 * MS_PER_HOUR) continue;
+      from = Math.min(from, (Math.max(itemFrom, start) - start) / MS_PER_HOUR);
+      to = Math.max(to, (Math.min(itemTo, next.getTime()) - start) / MS_PER_HOUR);
+    }
+  }
+  if (from >= to) return QUIET_HOURS;
+  from = Math.max(0, Math.floor(from - 0.25));
+  to = Math.min(24, Math.ceil(to + 0.25));
+  const short = MIN_FIT_HOURS - (to - from);
+  if (short > 0) {
+    from = Math.max(0, from - Math.floor(short / 2));
+    to = Math.min(24, from + MIN_FIT_HOURS);
+    from = Math.max(0, to - MIN_FIT_HOURS);
+  }
+  return [from, to];
+}
+
+/**
+ * What the hours were last fitted to: the days on screen, and the hours
+ * their items needed, and the size and first hour that fit them (and
+ * whether that's been applied yet). A redraw for the same days keeps the
+ * zoom (and any pinch or scroll since), unless their items now need other
+ * hours and you haven't zoomed or scrolled since.
+ */
+let fitted = { days: "", hours: "", adjusted: false, height: 0, from: 0, applied: true };
+
 /** The sliding strip of each week view on screen, for `slideTimeline`. */
 const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>();
 
@@ -414,7 +494,13 @@ const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>
  * Draws `days`, `visible` of them across the window at a time (all of them
  * unless sliding), starting at `ctx.anchor`.
  */
-export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[], visible = days.length): void {
+export function renderTimeline(
+  root: HTMLElement,
+  ctx: ViewContext,
+  days: Date[],
+  visible = days.length,
+  startHour?: number,
+): void {
   const timeline = el("div", "timeline");
   timeline.style.setProperty("--columns", String(days.length));
   timeline.style.setProperty("--hour-height", `${hourHeight}px`);
@@ -473,15 +559,52 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
         }
         window.clearTimeout(settle);
         settle = window.setTimeout(() => {
-          if (scroller.isConnected) ctx.slid?.(days[first], true);
+          if (!scroller.isConnected) return;
+          scroller.dispatchEvent(new Event("slid"));
+          ctx.slid?.(days[first], true);
         }, 200);
       },
       { passive: true },
     );
   }
 
-  if (ctx.reveal) {
+  /** Redraws at the current size, keeping the days and hours on screen where they are. */
+  const redraw = (hour?: number) =>
+    renderTimeline(root, { ...ctx, anchor: days[first], preserveScroll: hour === undefined, reveal: undefined }, days, visible, hour);
+  const onScreen = () => days.slice(first, first + visible);
+  /** The hour height (and first hour) that fits the days on screen, if they need fitting now. */
+  const fit = (): [height: number, from: number] | null => {
+    const daysKey = `${toDateString(days[first])}+${visible}`;
+    const [from, to] = busyHours(ctx.items, onScreen());
+    const hoursKey = `${from}-${to}`;
+    if (daysKey === fitted.days && (hoursKey === fitted.hours || fitted.adjusted)) {
+      // Worked out already, but (say) a redraw came before it could be applied.
+      return fitted.applied ? null : [fitted.height, fitted.from];
+    }
+    // The hours' height, less what the phone's floating buttons cover.
+    const dock = document.querySelector<HTMLElement>(".dock");
+    const shown = dock && dock.getClientRects().length > 0; // not display: none (desktop)
+    const covered = shown ? Math.max(0, scroller.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
+    const room = scroller.clientHeight - top.offsetHeight - covered;
+    const height = Math.min(MAX_FIT_HEIGHT, Math.max(MIN_HOUR_HEIGHT, room / (to - from)));
+    fitted = { days: daysKey, hours: hoursKey, adjusted: false, height, from, applied: false };
+    return [height, from];
+  };
+
+  const zoom = startHour === undefined && !ctx.reveal ? fit() : null;
+  if (zoom) fitted.applied = true;
+  if (zoom && Math.abs(zoom[0] - hourHeight) > 0.5) {
+    // Short events lay out by their height, so draw again at the new one.
+    hourHeight = zoom[0];
+    return redraw(zoom[1]);
+  }
+  if (startHour !== undefined) {
+    scroller.scrollTop = startHour * hourHeight;
+  } else if (zoom) {
+    scroller.scrollTop = zoom[1] * hourHeight;
+  } else if (ctx.reveal) {
     scroller.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * hourHeight;
+    fitted = { ...fitted, days: `${toDateString(days[first])}+${visible}`, hours: "", adjusted: true, applied: true };
   } else if (previousScroll !== undefined) {
     scroller.scrollTop = previousScroll;
   } else {
@@ -491,11 +614,71 @@ export function renderTimeline(root: HTMLElement, ctx: ViewContext, days: Date[]
     scroller.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * hourHeight;
   }
 
+  // A trackpad swipe that began on the all-day row keeps scrolling only it,
+  // even once the pointer drifts down over the hours.
+  scroller.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.ctrlKey) return;
+      const started = wheelGesture(e);
+      if (started === scroller || !(started instanceof HTMLElement) || started.contains(e.target as Node)) return;
+      const scrollRow = allDayScrollers.get(started);
+      if (!scrollRow) return;
+      e.preventDefault();
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) scrollRow(e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY);
+    },
+    { passive: false },
+  );
+
+  // Zooming or scrolling the hours yourself keeps them as you left them,
+  // until other days come on screen.
+  const adjusted = () => (fitted.adjusted = true);
+  scroller.addEventListener("wheel", (e) => Math.abs(e.deltaY) > Math.abs(e.deltaX) && adjusted(), { passive: true });
+  scroller.addEventListener("touchmove", adjusted, { passive: true });
+
+  // After sliding to other days, zoom to fit them, smoothly.
+  if (sliding) {
+    scroller.addEventListener("slid", () => {
+      const zoom = fit();
+      if (zoom)
+        animateZoom(scroller, timeline, zoom[0], zoom[1], () => {
+          fitted.applied = true;
+          redraw();
+        });
+    });
+  }
+
   // After a pinch, draw again at the new size (short events change layout),
   // keeping the days and hours on screen where they are.
-  enablePinch(scroller, timeline, () =>
-    renderTimeline(root, { ...ctx, anchor: days[first], preserveScroll: true, reveal: undefined }, days, visible),
-  );
+  enablePinch(scroller, timeline, () => {
+    adjusted();
+    redraw();
+  });
+}
+
+/**
+ * Changes the hour height to `height` and scrolls to `fromHour`, over a
+ * moment, then runs `done`. A touch or wheel stops it where it is.
+ */
+function animateZoom(scroller: HTMLElement, timeline: HTMLElement, height: number, fromHour: number, done: () => void) {
+  const [startHeight, startTop, endTop] = [hourHeight, scroller.scrollTop, fromHour * height];
+  const began = performance.now();
+  let stopped = false;
+  const stop = () => (stopped = true);
+  scroller.addEventListener("touchstart", stop, { once: true, passive: true });
+  scroller.addEventListener("wheel", stop, { once: true, passive: true });
+  const step = (now: number) => {
+    if (!scroller.isConnected) return;
+    if (stopped) return done();
+    const t = Math.min(1, (now - began) / 300);
+    const eased = 1 - (1 - t) ** 3;
+    hourHeight = startHeight + (height - startHeight) * eased;
+    timeline.style.setProperty("--hour-height", `${hourHeight}px`);
+    scroller.scrollTop = startTop + (endTop - startTop) * eased;
+    if (t < 1) requestAnimationFrame(step);
+    else done();
+  };
+  requestAnimationFrame(step);
 }
 
 /**

@@ -201,6 +201,18 @@ there with `slideTimeline` when it's among the days drawn.
   it redraws only if the answer differs from what's drawn, and skips while
   hidden, dragging or with a menu open. (Google push notifications need a
   public web address to call, which a desktop app doesn't have.)
+- **Zoom to fit** (`views/timeline.ts` `busyHours`, `fit`): when other days
+  come on screen (opening a view, or once a slide settles, animated), the
+  hour height is set so their timed items fill the hours' height (between
+  `MIN_HOUR_HEIGHT` and 96 px, at least 8 hours, 8 AM–6 PM if none; the
+  small hours of last night's late event don't count; the phone's floating
+  buttons are left clear). A pinch or scroll of your own keeps until other
+  days come on screen. `fitted` remembers what was fitted, so redraws for
+  the same days don't jump.
+- **All-day row scrolling**: a gesture that starts up or down on it scrolls
+  only it (`touchmove` is prevented, so the hours and days don't move too);
+  one that starts sideways slides the days. A trackpad swipe keeps scrolling
+  whichever it started on (`wheelGesture`), momentum included.
 - **Creating from the grid** (`views/create.ts`): double-click a day or a
   time (snapped to 15 minutes) for New event there; right-click for a menu
   of New Event / New Task. `openNew` takes the place clicked as `At`.

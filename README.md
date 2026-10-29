@@ -15,7 +15,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Views:** Day, a few days (3 unless you change it in Settings), Week,
   Month, Year and Agenda, for all your Google accounts' calendars together.
   The multi-day and week views slide through the days (two fingers on a
-  trackpad, or a finger on a phone), as in Apple's Calendar.
+  trackpad, or a finger on a phone), as in Apple's Calendar. Day, multi-day
+  and week views zoom to fit the days on screen: from just before their
+  first event to just after their last (at least 8 hours), again as you
+  slide to other days. Pinch to zoom yourself.
 - **Add in a sentence:** click **+** (or press `N`), or double-click a day, a
   day's heading or a time (right-click for New Event or New Task), and type
   something like
