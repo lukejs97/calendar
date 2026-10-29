@@ -52,7 +52,7 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   Minuteman running there; quit from the icon's right-click menu or with ⌘Q.
   What's next shows beside the icon ("Standup in 12 min", "○ Pay rent at
   3:00 PM" for a task), or what's on now if nothing starts before it ends
-  ("Work until 5:00 PM"); turn it off in Settings. Resize the small window from its edges; drag it (or click its
+  ("Work until 5:00 PM"); turn it off in Settings. **Open at login** (Settings) starts Minuteman there when you log in, its window closed. Resize the small window from its edges; drag it (or click its
   detach button) to keep it open as a window of its own.
 - **Stays in sync:** changes made elsewhere (Google Calendar, Todoist, your
   phone) show up within a minute while Minuteman is open, and as soon as you

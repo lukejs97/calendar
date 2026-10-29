@@ -79,6 +79,9 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 - Detaching (its header's button, or dragging it: a `Moved` event the app
   didn't cause) makes it an ordinary window that stays where you put it and
   stays open; the header then has put-back and close buttons.
+- `tauri-plugin-autostart` (a LaunchAgent on the Mac, the registry's Run key
+  on Windows) for Settings → Open at login; it passes `--hidden`, and
+  `desktop::setup` then hides the main window, so it starts in the menu bar.
 - `tauri-plugin-global-shortcut` registers ⌥⌘N, which shows the flyout
   and emits `flyout-new` to open New event in it.
 - Closing the main window hides it (`CloseRequested` → `prevent_close`);
@@ -207,8 +210,10 @@ there with `slideTimeline` when it's among the days drawn.
   `MIN_HOUR_HEIGHT` and 96 px, at least 8 hours, 8 AM–6 PM if none; the
   small hours of last night's late event don't count; the phone's floating
   buttons are left clear). A pinch or scroll of your own keeps until other
-  days come on screen. `fitted` remembers what was fitted, so redraws for
-  the same days don't jump.
+  days come on screen, and so does resizing the window (once it stops
+  changing; zoomed yourself, the hours are at least made to fill it).
+  `fitted` remembers what was fitted, so redraws for the same days don't
+  jump.
 - **All-day row scrolling**: a gesture that starts up or down on it scrolls
   only it (`touchmove` is prevented, so the hours and days don't move too);
   one that starts sideways slides the days. A trackpad swipe keeps scrolling
