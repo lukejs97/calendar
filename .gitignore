@@ -28,3 +28,6 @@ src-tauri/.env
 
 # Screenshots from local test runs
 /*.png
+
+# Personal Claude Code settings (e.g. rules keeping secrets files unreadable)
+.claude/settings.local.json
