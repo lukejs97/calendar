@@ -163,6 +163,11 @@ there with `slideTimeline` when it's among the days drawn.
   `ios/` images generated from `icon-ios.svg` into
   `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` (iOS icons must
   not have transparency).
+  The website's icons are in `public/` (copied into the build as they are):
+  `favicon.svg` is `icons/source/tray.svg` (the rounded tile);
+  `apple-touch-icon.png` (180px), `icon-192.png` and `icon-512.png` are
+  `icon-ios.svg` rendered full square without transparency, for phones' home
+  screens and `manifest.webmanifest`.
 - **Name (done): Minuteman.** It's `productName` and the window `title` in
   `src-tauri/tauri.conf.json`, the page title and heading in `index.html`
   and `main.ts`, the sign-in page in `google/loopback.rs`, and

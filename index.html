@@ -6,6 +6,18 @@
     <!-- viewport-fit=cover: draw edge to edge on phones; CSS keeps content clear of the notch. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Minuteman</title>
+    <!-- The logo in browser tabs, on a phone's home screen, and as an installed web app. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Minuteman" />
+    <!-- Opened from the home screen: full screen, the header's navy behind the status bar. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#1b2c4c" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1322" media="(prefers-color-scheme: dark)" />
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
