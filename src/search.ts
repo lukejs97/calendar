@@ -19,6 +19,11 @@ export function openSearch(open: (item: AgendaItem) => void): void {
   input.placeholder = "Search events and tasks";
   input.autocomplete = "off";
   input.setAttribute("aria-label", "Search events and tasks");
+  const cancel = el("button", "text-button", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => dialog.close());
+  const bar = el("div", "search-bar");
+  bar.append(input, cancel);
   const status = el("p", "search-status");
   status.setAttribute("aria-live", "polite");
   const results = el("div", "search-results");
@@ -71,7 +76,14 @@ export function openSearch(open: (item: AgendaItem) => void): void {
     }
   });
 
-  dialog.append(input, status, results);
+  // A tap on the dimmed page around the window closes it.
+  dialog.addEventListener("click", (e) => {
+    if (e.target !== dialog) return; // on something inside it
+    const r = dialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
+  });
+
+  dialog.append(bar, status, results);
   dialog.showModal();
   input.focus();
 }
