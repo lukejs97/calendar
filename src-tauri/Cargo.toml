@@ -44,6 +44,17 @@ tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
+# Mac only: Apple Calendar and Reminders (EventKit), and travel times for
+# "time to leave" alerts (Core Location, MapKit).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-event-kit = "0.3"
+objc2-core-location = "0.3"
+objc2-map-kit = "0.3"
+
 # iOS (and later Android): receives Google's sign-in redirect as a deep link.
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 tauri-plugin-deep-link = "2"

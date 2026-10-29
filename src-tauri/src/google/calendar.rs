@@ -712,6 +712,12 @@ fn popup_minutes(reminders: &[Reminder]) -> Vec<u32> {
     reminders.iter().filter(|r| r.method.as_deref() == Some("popup")).filter_map(|r| r.minutes).collect()
 }
 
+/// A video-call link in an event's location or notes (e.g. Apple Calendar's).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn meeting_link(location: Option<&str>, notes: Option<&str>) -> Option<String> {
+    location.and_then(find_meeting_link).or_else(|| notes.and_then(find_meeting_link))
+}
+
 /// The first video-call link in `text` (a location or notes, possibly HTML).
 fn find_meeting_link(text: &str) -> Option<String> {
     const HOSTS: &[&str] = &[

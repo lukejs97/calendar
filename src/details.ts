@@ -77,8 +77,9 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
 
   const buttons = el("div", "dialog-buttons");
   const error = el("p", "error");
-  // Google events you may change, and any task.
-  if (item.editable || item.kind === "task") {
+  // Google events you may change, and Todoist tasks (Apple items are
+  // changed in their own apps, for now).
+  if (item.editable || (item.kind === "task" && item.source === "todoist")) {
     const remove = el("button", "text-button danger", "Delete");
     remove.addEventListener("click", async () => {
       error.textContent = "";

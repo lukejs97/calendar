@@ -33,12 +33,23 @@ version is in progress ([docs/ios-setup.md](docs/ios-setup.md)). Built with
   small month calendar with the next few days, and **+** to add. `⌥⌘N`
   (Ctrl+Alt+N on Windows) adds an event from any app. Closing the window keeps
   Minuteman running there; quit from the icon's right-click menu or with ⌘Q.
+  The next event shows beside the icon ("Standup in 12 min"); turn it off in
+  Settings.
 - **Alerts** at each event's reminder times from Google Calendar, also with
   the window closed.
+- **Time to leave** (Mac; Settings → Time to leave): for events at a real
+  place in the next 3 hours, an alert when it's time to set off, from your
+  Mac's location and Apple Maps' driving time (plus 5 minutes).
+- **Apple Calendar and Reminders** (Mac; Settings): events from the Calendar
+  app (iCloud, Exchange, anything added on the Mac) and reminders with a due
+  date, alongside the rest. Tick reminders off here; other changes happen in
+  Apple's apps for now. Calendars from your Google accounts start switched off
+  (Settings → Choose calendars…), so they aren't shown twice.
 - **Offline:** opens straight away with what it last loaded, and shows (and
   searches) it without internet.
-- **Settings** (the gear, or `,`): Google accounts, Todoist, and how many days
-  the multi-day view shows (2 to 7; each device remembers its own).
+- **Settings** (the gear, or `,`): Google accounts, Todoist, how many days
+  the multi-day view shows (2 to 7; each device remembers its own), and on the
+  desktop the menu bar, time to leave, and Apple Calendar and Reminders.
 - **Several Google accounts:** Settings → Google accounts → **Add account**. While the
   Google project is in **Testing**, add the extra account as a test user first
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).

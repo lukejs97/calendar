@@ -37,6 +37,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "infoPlist": "Info.macos.plist",
+      "entitlements": "Entitlements.macos.plist"
+    },
     "iOS": {
       "minimumSystemVersion": "16.0"
     }

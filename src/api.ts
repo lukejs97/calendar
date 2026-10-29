@@ -1,7 +1,7 @@
 // Typed wrappers around the Rust commands in src-tauri/src/lib.rs.
 import { invoke } from "@tauri-apps/api/core";
 
-export type Source = "google" | "todoist";
+export type Source = "google" | "todoist" | "apple";
 export type ItemKind = "event" | "task";
 
 /** Someone invited to an event. Mirrors `Attendee` in src-tauri/src/agenda.rs. */
@@ -210,6 +210,46 @@ export const setTaskCompleted = (id: string, completed: boolean) =>
 
 /** Brings up the main window (from the menu bar window). */
 export const showMain = () => invoke<void>("show_main");
+
+/** Settings the Rust side keeps (mirrors `Prefs` in src-tauri/src/prefs.rs). */
+export interface Preferences {
+  menuBarNext: boolean;
+  timeToLeave: boolean;
+  appleCalendar: boolean;
+  appleReminders: boolean;
+  /** Apple calendars and reminder lists shown or left out, where chosen. */
+  appleCalendarsShown: Record<string, boolean>;
+}
+
+/** Whether macOS lets Minuteman use something (calendars, location). */
+export type Access = "notAsked" | "granted" | "denied";
+
+export interface AppleStatus {
+  calendar: Access;
+  reminders: Access;
+}
+
+/** A calendar from the Mac's Calendar app, or a list from Reminders. */
+export interface AppleCalendar {
+  id: string;
+  title: string;
+  /** Its account: "iCloud", "On My Mac", an email address… */
+  account: string;
+  color: string;
+  reminders: boolean;
+  shown: boolean;
+}
+
+export const getPreferences = () => invoke<Preferences>("get_preferences");
+export const setPreferences = (preferences: Preferences) => invoke<void>("set_preferences", { preferences });
+/** Mac only; null elsewhere. */
+export const appleStatus = () => invoke<AppleStatus | null>("apple_status");
+/** Shows macOS's permission prompt the first time; resolves once answered. */
+export const appleRequestAccess = (kind: "calendar" | "reminders") =>
+  invoke<Access>("apple_request_access", { kind });
+export const appleCalendars = () => invoke<AppleCalendar[]>("apple_calendars");
+/** Mac only; null elsewhere. */
+export const locationAccess = () => invoke<Access | null>("location_access");
 
 function isAppError(e: unknown): e is AppError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;

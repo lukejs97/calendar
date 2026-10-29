@@ -2,8 +2,17 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  appleCalendars,
+  appleRequestAccess,
+  appleStatus,
   errorMessage,
+  getPreferences,
   googleAccounts,
+  locationAccess,
+  setPreferences,
+  type Access,
+  type AppleStatus,
+  type Preferences,
   removeGoogleAccount,
   signIn,
   todoistConnect,
@@ -22,7 +31,12 @@ export interface SettingsActions {
   todoistChanged(): void;
   /** After choosing how many days the multi-day view shows. */
   daysChanged(): void;
+  /** After turning Apple Calendar or Reminders on or off, or choosing calendars. */
+  sourcesChanged(): void;
 }
+
+const isPhone = () => /iPhone|iPad|Android/.test(navigator.userAgent);
+const isMac = () => /Macintosh|Mac OS X/.test(navigator.userAgent) && !isPhone();
 
 /** Opens Settings: Google accounts, Todoist, and the multi-day view's days. */
 export async function openSettings(actions: SettingsActions): Promise<void> {
@@ -74,6 +88,11 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
   }
 
+  // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
+  // (To preview them in a browser during `npm run dev`, add ?desktop.)
+  const desktopPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("desktop");
+  if ((isTauri() || desktopPreview) && !isPhone()) void addDesktopRows(rows, actions);
+
   const close = el("button", "primary-button", "Done");
   close.addEventListener("click", () => dialog.close());
   dialog.append(title, rows, buttonRow(close));
@@ -87,6 +106,138 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     emails === null ? "" : emails.length === 1 ? emails[0] : `${emails.length} accounts`;
   todoistNote.textContent = connected === null ? "" : connected ? "Connected" : "Not connected";
   todoist.textContent = connected ? "Manage…" : "Set up…";
+}
+
+/** The desktop app's own rows, once its settings have loaded. */
+async function addDesktopRows(rows: HTMLElement, actions: SettingsActions): Promise<void> {
+  let prefs: Preferences;
+  try {
+    prefs = await getPreferences();
+  } catch {
+    return; // an older Rust side: nothing to show
+  }
+  const save = async (change: Partial<Preferences>) => {
+    prefs = { ...prefs, ...change };
+    await setPreferences(prefs);
+  };
+
+  const menuBar = toggle("Show the next event in the menu bar", prefs.menuBarNext, (on) => save({ menuBarNext: on }));
+  rows.append(
+    settingsRow(
+      "Menu bar",
+      el("span", "settings-note", isMac() ? "Next event beside the icon" : "Next event in the icon's tooltip"),
+      menuBar,
+    ),
+  );
+  if (!isMac()) return;
+
+  // Time to leave: needs the Mac's location.
+  const leaveNote = el("span", "settings-note", "Alerts with Apple Maps driving time");
+  const showLocation = (access: Access | null) => {
+    if (access === "denied") leaveNote.textContent = "Allow location in System Settings → Privacy & Security";
+  };
+  const leave = toggle("Time to leave alerts", prefs.timeToLeave, async (on) => {
+    await save({ timeToLeave: on });
+    // macOS asks about location now; look again once you've answered.
+    if (on) window.setTimeout(async () => showLocation(await locationAccess().catch(() => null)), 4000);
+  });
+  if (prefs.timeToLeave) showLocation(await locationAccess().catch(() => null));
+  rows.append(settingsRow("Time to leave", leaveNote, leave));
+
+  // Apple Calendar and Reminders.
+  const status: AppleStatus | null = await appleStatus().catch(() => null);
+  if (!status) return;
+  const choose = el("button", "link-button", "Choose calendars…");
+  choose.addEventListener("click", () => void openAppleCalendars(actions));
+  const updateChoose = () => {
+    choose.hidden = !(prefs.appleCalendar || prefs.appleReminders);
+  };
+  updateChoose();
+
+  const appleRow = (name: string, kind: "calendar" | "reminders", key: "appleCalendar" | "appleReminders") => {
+    const note = el("span", "settings-note", kind === "calendar" ? "Events from the Calendar app" : "Lists from the Reminders app");
+    const denied = () => {
+      note.textContent = `Allow ${kind === "calendar" ? "Calendars" : "Reminders"} in System Settings → Privacy & Security`;
+    };
+    if (status[kind] === "denied" && prefs[key]) denied();
+    const control = toggle(name, prefs[key], async (on, box) => {
+      if (on && status[kind] !== "granted") {
+        status[kind] = await appleRequestAccess(kind).catch(() => "denied" as const);
+        if (status[kind] !== "granted") {
+          box.checked = false;
+          return denied();
+        }
+      }
+      await save({ [key]: on });
+      updateChoose();
+      actions.sourcesChanged();
+    });
+    return settingsRow(name, note, control);
+  };
+  rows.append(appleRow("Apple Calendar", "calendar", "appleCalendar"), appleRow("Apple Reminders", "reminders", "appleReminders"));
+  const chooseRow = el("div", "settings-row settings-sub");
+  chooseRow.append(choose);
+  rows.append(chooseRow);
+}
+
+/** A switch (checkbox) that runs `changed` when flipped. */
+function toggle(
+  label: string,
+  on: boolean,
+  changed: (on: boolean, box: HTMLInputElement) => unknown,
+): HTMLInputElement {
+  const box = el("input", "settings-switch");
+  box.type = "checkbox";
+  box.checked = on;
+  box.setAttribute("aria-label", label);
+  box.addEventListener("change", () => void changed(box.checked, box));
+  return box;
+}
+
+/** Choose which of the Calendar app's calendars and Reminders' lists to show. */
+async function openAppleCalendars(actions: SettingsActions): Promise<void> {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "apple-calendars-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  const title = el("h2", undefined, "Apple calendars");
+  title.id = "apple-calendars-title";
+  const help = el(
+    "p",
+    undefined,
+    "Calendars from your Google accounts start switched off here, as Minuteman already shows them from Google.",
+  );
+  const list = el("div", "settings-rows");
+  const close = el("button", "primary-button", "Done");
+  close.addEventListener("click", () => dialog.close());
+  dialog.append(title, help, list, buttonRow(close));
+  dialog.showModal();
+
+  try {
+    const [calendars, prefs] = await Promise.all([appleCalendars(), getPreferences()]);
+    for (const reminders of [false, true]) {
+      const group = calendars.filter((c) => c.reminders === reminders);
+      if (group.length === 0) continue;
+      list.append(el("h3", "settings-group", reminders ? "Reminder lists" : "Calendars"));
+      for (const calendar of group) {
+        const box = toggle(calendar.title, calendar.shown, async (on) => {
+          prefs.appleCalendarsShown[calendar.id] = on;
+          await setPreferences(prefs);
+          actions.sourcesChanged();
+        });
+        const name = el("span", "settings-name settings-calendar", calendar.title);
+        name.style.setProperty("--item-color", calendar.color);
+        const text = el("div", "settings-text");
+        text.append(name, el("span", "settings-note", calendar.account));
+        const row = el("label", "settings-row");
+        row.append(text, box);
+        list.append(row);
+      }
+    }
+    if (calendars.length === 0) list.append(el("p", "settings-note", "No calendars: is access allowed in System Settings?"));
+  } catch (e) {
+    list.append(el("p", "error", errorMessage(e)));
+  }
 }
 
 function settingsRow(name: string, note: HTMLElement, control: HTMLElement): HTMLElement {

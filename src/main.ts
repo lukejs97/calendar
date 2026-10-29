@@ -414,6 +414,10 @@ function showSettings(): void {
       labelViews();
       if (state.view === "days") void load();
     },
+    sourcesChanged: () => {
+      cache.clear();
+      void load();
+    },
   });
 }
 

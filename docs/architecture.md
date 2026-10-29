@@ -32,7 +32,11 @@
 │ search.rs          search across accounts/Todoist   │
 │ cache.rs           saved items for offline use      │
 │ desktop.rs         menu bar icon + window, ⌥⌘N      │
-│ alerts.rs          notifications before events      │
+│ alerts.rs          notifications, time to leave,    │
+│                    the menu bar's next event        │
+│ prefs.rs           settings kept for the Rust side  │
+│ apple.rs           Mac: Calendar + Reminders apps   │
+│ travel.rs          Mac: location, Apple Maps times  │
 │ secrets.rs         OS keychain                      │
 │ error.rs           AppError → { kind, message }     │
 └─────────────────────────────────────────────────────┘
@@ -71,6 +75,26 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `RunEvent::Reopen` (Dock click) shows it again.
 - `sync.ts`: each window emits `agenda-changed` after a change, and the
   other reloads.
+
+Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
+
+- **Apple Calendar and Reminders** (`apple.rs`): EventKit on one background
+  thread that owns the `EKEventStore`. Events and reminders become
+  `AgendaItem { source: Apple }` (read-only; reminders can be ticked off via
+  `set_task_completed`). `agenda::load` adds them when turned on in Settings
+  (`prefs.rs`). Calendars whose account looks like one of your Google ones
+  start hidden, to avoid doubles.
+- **Time to leave** (`travel.rs`, used by `alerts.rs`): `CLLocationManager`
+  on the main thread follows the location while it's on; `MKLocalSearch`
+  finds the event's place near you and `MKDirections` the driving time,
+  arriving at the start. The alert comes at start − drive − 5 minutes.
+- Permissions: the prompts' texts are in `Info.macos.plist`, and the hardened
+  runtime's calendar and location entitlements in `Entitlements.macos.plist`
+  (`tauri.conf.json` → bundle → macOS).
+- To check Mac code compiles on Linux: `rustup target add
+  aarch64-apple-darwin`, then `cargo check --target aarch64-apple-darwin`
+  with `CC_aarch64_apple_darwin` set to a stand-in compiler that writes empty
+  object files (a check never links).
 
 The multi-day view ("3 Days", `days` in `views/index.ts`) works the same
 way with fewer columns across: `multiDayCount()` from `preferences.ts`, set

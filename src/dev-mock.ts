@@ -162,6 +162,16 @@ export function install(): void {
     { id: "work", ...WORK, primary: false },
   ];
 
+  // Desktop settings (src-tauri/src/prefs.rs), as a Mac would have them.
+  let preferences = {
+    menuBarNext: true,
+    timeToLeave: false,
+    appleCalendar: false,
+    appleReminders: false,
+    appleCalendarsShown: {} as Record<string, boolean>,
+  };
+  const appleAccess = { calendar: "notAsked", reminders: "notAsked" };
+
   mockIPC((cmd, args) => {
     switch (cmd) {
       case "auth_status":
@@ -334,6 +344,26 @@ export function install(): void {
         else completedTasks.delete(id);
         return null;
       }
+      case "get_preferences":
+        return preferences;
+      case "set_preferences":
+        preferences = (args as { preferences: typeof preferences }).preferences;
+        return null;
+      case "apple_status":
+        return appleAccess;
+      case "apple_request_access": {
+        const { kind } = args as { kind: "calendar" | "reminders" };
+        appleAccess[kind] = "granted";
+        return "granted";
+      }
+      case "apple_calendars":
+        return [
+          { id: "home", title: "Home", account: "iCloud", color: "#34c759", reminders: false, shown: true },
+          { id: "g", title: "preview@example.com", account: "preview@example.com", color: "#4285f4", reminders: false, shown: false },
+          { id: "todo", title: "Reminders", account: "iCloud", color: "#ff9500", reminders: true, shown: true },
+        ].map((c) => ({ ...c, shown: preferences.appleCalendarsShown[c.id] ?? c.shown }));
+      case "location_access":
+        return "granted";
       default:
         console.info("mock IPC:", cmd, args);
         return null;

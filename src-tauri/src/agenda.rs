@@ -17,6 +17,8 @@ use crate::{secrets, todoist};
 pub enum Source {
     Google,
     Todoist,
+    /// The Mac's Calendar and Reminders apps (apple.rs).
+    Apple,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -175,7 +177,7 @@ pub async fn load(
             }
             // Its token stopped working, and it's been removed.
             Err(AppError::NotSignedIn) => {
-                warnings.push(format!("{email}: Google signed this account out. Add it again under Accounts."));
+                warnings.push(format!("{email}: Google signed this account out. Add it again under Settings → Google accounts."));
                 first_error.get_or_insert(AppError::NotSignedIn);
             }
             Err(e) => {
@@ -200,8 +202,47 @@ pub async fn load(
         None => {}
     }
 
+    #[cfg(target_os = "macos")]
+    add_apple(from, to, &signed_in, &mut items, &mut warnings, &mut loaded).await;
+
     items.sort_by_cached_key(|item| (start_timestamp(item), !item.all_day, item.title.clone()));
     Ok(Agenda { accounts: signed_in, items, warnings, offline_since: None, loaded })
+}
+
+/// The Mac's Calendar and Reminders apps' items, if turned on in Settings.
+#[cfg(target_os = "macos")]
+async fn add_apple(
+    from: NaiveDate,
+    to: NaiveDate,
+    google_accounts: &[String],
+    items: &mut Vec<AgendaItem>,
+    warnings: &mut Vec<String>,
+    loaded: &mut Vec<String>,
+) {
+    use crate::apple;
+    let prefs = crate::prefs::get();
+    let mut all_loaded = prefs.apple_calendar || prefs.apple_reminders;
+    if prefs.apple_calendar {
+        match apple::events_between(local_midnight(from), local_midnight(to), google_accounts.to_vec()).await {
+            Ok(events) => items.extend(events),
+            Err(e) => {
+                warnings.push(format!("Apple Calendar: {e}"));
+                all_loaded = false;
+            }
+        }
+    }
+    if prefs.apple_reminders {
+        match apple::reminders_between(from, to, google_accounts.to_vec()).await {
+            Ok(reminders) => items.extend(reminders),
+            Err(e) => {
+                warnings.push(format!("Reminders: {e}"));
+                all_loaded = false;
+            }
+        }
+    }
+    if all_loaded {
+        loaded.push("apple".into());
+    }
 }
 
 /// Start time as a Unix timestamp; all-day items count as starting at local

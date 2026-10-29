@@ -11,6 +11,11 @@ use tauri::{App, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, 
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_positioner::{Position, WindowExt};
 
+/// The menu bar icon's ID.
+const TRAY: &str = "minuteman";
+/// What's beside the icon now, to skip setting it again.
+static MENU_BAR_TEXT: Mutex<Option<String>> = Mutex::new(None);
+
 /// The menu bar window's label.
 pub const FLYOUT: &str = "flyout";
 /// Opens New event from anywhere: ⌥⌘N on a Mac, Ctrl+Alt+N on Windows.
@@ -81,7 +86,7 @@ fn create_tray(app: &App) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &new, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
 
-    TrayIconBuilder::with_id("minuteman")
+    TrayIconBuilder::with_id(TRAY)
         .icon(icon)
         // The app's own logo, in its colours (icons/source/tray.svg).
         .icon_as_template(false)
@@ -144,4 +149,20 @@ pub fn show_main(app: &AppHandle) {
         let _ = main.unminimize();
         let _ = main.set_focus();
     }
+}
+
+/// Puts `text` (the next event) beside the menu bar icon, or nothing. On
+/// Windows, where icons have no text, it's the icon's tooltip instead.
+pub fn set_menu_bar_text(app: &AppHandle, text: Option<String>) {
+    let mut shown = MENU_BAR_TEXT.lock().expect("not poisoned");
+    if *shown == text {
+        return;
+    }
+    let Some(tray) = app.tray_by_id(TRAY) else { return };
+    if cfg!(target_os = "macos") {
+        let _ = tray.set_title(text.as_deref());
+    } else {
+        let _ = tray.set_tooltip(Some(text.as_deref().unwrap_or("Minuteman")));
+    }
+    *shown = text;
 }

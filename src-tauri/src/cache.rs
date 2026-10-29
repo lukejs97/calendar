@@ -28,10 +28,11 @@ pub struct AgendaCache {
     saved: Mutex<Saved>,
 }
 
-/// Which source an item came from: its Google account, or "todoist".
+/// Which source an item came from: its Google account, "todoist" or "apple".
 pub fn source_key(item: &AgendaItem) -> &str {
     match (item.source, &item.account) {
         (Source::Google, Some(account)) => account,
+        (Source::Apple, _) => "apple",
         _ => "todoist",
     }
 }

@@ -1901,3 +1901,32 @@ body.flyout #app {
   width: auto;
   flex: none;
 }
+
+.settings-switch {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.settings-sub {
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
+.settings-group {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* A calendar's colour as a dot before its name. */
+.settings-calendar::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--item-color);
+}

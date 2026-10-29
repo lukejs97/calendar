@@ -1,4 +1,6 @@
 mod agenda;
+#[cfg(target_os = "macos")]
+mod apple;
 #[cfg(desktop)]
 mod alerts;
 mod cache;
@@ -6,9 +8,12 @@ mod cache;
 mod desktop;
 mod error;
 mod google;
+mod prefs;
 mod search;
 mod secrets;
 mod todoist;
+#[cfg(target_os = "macos")]
+mod travel;
 
 use std::time::Duration;
 
@@ -240,6 +245,84 @@ fn events_changed() {
     alerts::refresh();
 }
 
+/// Settings the Rust side keeps (see prefs.rs).
+#[tauri::command]
+fn get_preferences() -> prefs::Prefs {
+    prefs::get()
+}
+
+#[tauri::command]
+fn set_preferences(app: AppHandle, cache: State<'_, AgendaCache>, preferences: prefs::Prefs) {
+    if !preferences.apple_calendar && !preferences.apple_reminders {
+        cache.forget("apple");
+    }
+    // Follow the Mac's location only while time-to-leave alerts are on.
+    #[cfg(target_os = "macos")]
+    if preferences.time_to_leave != prefs::get().time_to_leave {
+        if preferences.time_to_leave { travel::start(&app) } else { travel::stop(&app) }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+    prefs::set(preferences);
+    // Redraw the menu bar text, and reload (Apple calendars may have changed).
+    events_changed();
+}
+
+/// Mac only: whether Minuteman may read the Calendar and Reminders apps'
+/// data (`null` elsewhere).
+#[tauri::command]
+fn apple_status() -> Option<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    return serde_json::to_value(apple::status()).ok();
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+/// Mac only: asks for access to the Calendar app ("calendar") or the
+/// Reminders app ("reminders"), showing macOS's prompt the first time.
+#[tauri::command]
+async fn apple_request_access(kind: String) -> Result<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    {
+        let kind = serde_json::from_value(serde_json::Value::String(kind))
+            .map_err(|_| AppError::InvalidInput("kind must be calendar or reminders".into()))?;
+        let access = apple::request_access(kind).await?;
+        events_changed();
+        Ok(serde_json::to_value(access).expect("serializable"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        Err(AppError::Config("Apple Calendar is only on the Mac".into()))
+    }
+}
+
+/// Mac only: the Calendar app's calendars and the Reminders app's lists, and
+/// which are shown.
+#[tauri::command]
+async fn apple_calendars(state: State<'_, AppState>) -> Result<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    {
+        let accounts = state.google_auth.accounts().await.unwrap_or_default();
+        Ok(serde_json::to_value(apple::calendars(accounts).await?).expect("serializable"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = state;
+        Ok(serde_json::Value::Array(Vec::new()))
+    }
+}
+
+/// Mac only: whether Minuteman may use the Mac's location, for time-to-leave
+/// alerts ("notAsked", "granted" or "denied"; `null` elsewhere).
+#[tauri::command]
+fn location_access() -> Option<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    return serde_json::to_value(travel::access()).ok();
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 /// Brings up the main window, e.g. from the menu bar window.
 #[tauri::command]
 fn show_main(app: AppHandle) {
@@ -309,9 +392,13 @@ fn todoist_disconnect(cache: State<'_, AgendaCache>) -> Result<()> {
     Ok(())
 }
 
-/// `id` is the task's `AgendaItem` id ("todoist:…").
+/// `id` is the task's `AgendaItem` id ("todoist:…", or "apple-reminder:…" on a Mac).
 #[tauri::command]
 async fn set_task_completed(state: State<'_, AppState>, id: String, completed: bool) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    if apple::is_reminder(&id) {
+        return apple::set_reminder_completed(&id, completed).await;
+    }
     todoist::set_completed(&state.http, &todoist_token()?, &id, completed).await
 }
 
@@ -337,12 +424,17 @@ pub fn run() {
         .setup(|app| {
             let path = app.path().app_cache_dir().ok().map(|dir| dir.join("agenda.json"));
             app.manage(AgendaCache::load(path));
+            prefs::init(app.path().app_config_dir().ok().map(|dir| dir.join("preferences.json")));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
             #[cfg(desktop)]
             {
                 desktop::setup(app)?;
                 alerts::start(app.handle().clone());
+            }
+            #[cfg(target_os = "macos")]
+            if prefs::get().time_to_leave {
+                travel::start(app.handle());
             }
             Ok(())
         })
@@ -370,6 +462,12 @@ pub fn run() {
             delete_task,
             set_task_completed,
             show_main,
+            get_preferences,
+            set_preferences,
+            apple_status,
+            apple_request_access,
+            apple_calendars,
+            location_access,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
