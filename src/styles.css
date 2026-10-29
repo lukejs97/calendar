@@ -1235,10 +1235,13 @@ main.loading > * {
 }
 
 .tl-day-header {
+  /* Narrow columns put the weather under the date (below). */
+  container-type: inline-size;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: center;
-  gap: 6px;
+  gap: 0 6px;
   min-width: 0;
   padding: 6px 2px;
   border: none;
@@ -1248,12 +1251,102 @@ main.loading > * {
   white-space: nowrap;
 }
 
+/* Settings → Weather: the search box, and the places found. */
+.weather-search {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.weather-search .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.weather-place {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weather-place:hover {
+  background: var(--surface);
+}
+
+/* A day's weather: icon and high (and, in Day view and lists, low). */
+.weather {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.weather-icon {
+  font-size: 13px;
+}
+
+.weather-low {
+  font-weight: 400;
+}
+
+.day-label .weather {
+  margin-left: 10px;
+}
+
+/* The month view's date, with the weather on the left of it. */
+.month-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.month-head .month-date {
+  margin-left: auto;
+}
+
+.month-head .weather {
+  overflow: hidden;
+  font-size: 11px;
+}
+
+@container (max-width: 72px) {
+  .month-head .weather-high {
+    display: none;
+  }
+}
+
 /* Narrow columns (a week on a phone): the weekday above the date. */
 .timeline.narrow .tl-day-header {
   flex-direction: column;
   align-items: center;
   gap: 0;
   padding: 4px 0;
+}
+
+/* A narrow column (a few days on a phone): the weather under the date, for
+   every day alike. */
+@container (max-width: 150px) {
+  .tl-day-header .weather {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+}
+
+/* ...and just the weather's icon. */
+.timeline.narrow .weather-high,
+.timeline.narrow .weather-low {
+  display: none;
 }
 
 .timeline.narrow .tl-weekday {
@@ -1570,6 +1663,8 @@ main.loading > * {
 }
 
 .month-cell {
+  /* So a narrow cell (a phone) can drop the weather's temperature. */
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   min-width: 0;

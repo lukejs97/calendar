@@ -174,6 +174,37 @@ export function install(): void {
     appleCalendarsShown: {} as Record<string, boolean>,
   };
   const appleAccess = { calendar: "notAsked", reminders: "notAsked" };
+  // Google calendars hidden in Settings (by name here; the samples have no real IDs).
+  const hiddenCalendars = new Set<string>();
+
+  // The weather (src/weather.ts) comes from Open-Meteo; answer for it here.
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === "geocoding-api.open-meteo.com") {
+      const name = url.searchParams.get("name") ?? "";
+      return Response.json({
+        results: [
+          { name, admin1: "South Carolina", country: "United States", latitude: 34.94, longitude: -82.23 },
+          { name, admin1: "Oklahoma", country: "United States", latitude: 34.94, longitude: -97.4 },
+        ],
+      });
+    }
+    if (url.hostname === "api.open-meteo.com") {
+      const start = addDays(startOfDay(new Date()), -7);
+      const days = Array.from({ length: 23 }, (_, i) => addDays(start, i));
+      const codes = [0, 1, 2, 3, 61, 80, 95, 71, 45, 2];
+      return Response.json({
+        daily: {
+          time: days.map(toDateString),
+          weather_code: days.map((_, i) => codes[i % codes.length]),
+          temperature_2m_max: days.map((_, i) => 64 + ((i * 7) % 15)),
+          temperature_2m_min: days.map((_, i) => 44 + ((i * 5) % 11)),
+        },
+      });
+    }
+    return realFetch(input, init);
+  };
 
   mockIPC((cmd, args) => {
     switch (cmd) {
@@ -199,7 +230,8 @@ export function install(): void {
           .filter((item) => !deleted.has(item.id))
           .map((item) => ({ ...item, ...edits.get(item.id), sourceId: item.id }))
           .filter((item) => overlaps(item, range.from, range.to))
-          .filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true));
+          .filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true))
+          .filter((item) => item.source !== "google" || !hiddenCalendars.has(item.listName.toLowerCase()));
         const agenda: Agenda = { accounts, items, warnings: [], offlineSince: null };
         return agenda;
       }
@@ -266,6 +298,21 @@ export function install(): void {
           calendars: i === 0 ? calendars.map(({ id, name, color, primary }) => ({ id, name, color, primary })) : [],
           error: null,
         }));
+      case "google_calendars":
+        return accounts.map((email, i) => ({
+          email,
+          calendars: (i === 0 ? [PERSONAL, WORK, FAMILY, HOLIDAYS] : [{ name: email, color: "#039be5" }]).map((cal, j) => {
+            const id = cal.name.toLowerCase();
+            return { id, name: cal.name, color: cal.color, primary: j === 0, shown: !hiddenCalendars.has(id) };
+          }),
+          error: null,
+        }));
+      case "set_google_calendar_shown": {
+        const { calendarId, shown } = args as { calendarId: string; shown: boolean };
+        if (shown) hiddenCalendars.delete(calendarId);
+        else hiddenCalendars.add(calendarId);
+        return null;
+      }
       case "create_event": {
         const { calendarId, event } = args as { calendarId: string; event: EventDraft };
         const calendar = calendars.find((c) => c.id === calendarId)!;

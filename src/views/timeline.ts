@@ -8,6 +8,7 @@
 // it gets near either end.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { weatherBadge, weatherOn } from "../weather";
 import {
   hourHeight as savedHourHeight,
   MAX_HOUR_HEIGHT,
@@ -125,6 +126,9 @@ function headerRow(ctx: ViewContext, days: Date[]): HTMLElement {
     const cell = el("button", "tl-day-header");
     if (isSameDay(day, ctx.now)) cell.classList.add("today");
     cell.append(el("span", "tl-weekday", weekdayFormat.format(day)), el("span", "tl-date", String(day.getDate())));
+    // One day on screen: the low too.
+    const weather = weatherOn(day);
+    if (weather) cell.append(weatherBadge(weather, days.length === 1));
     cell.title = "Show this day";
     dayButton(cell, ctx, day);
     row.append(cell);

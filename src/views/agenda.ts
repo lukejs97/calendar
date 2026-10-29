@@ -1,6 +1,7 @@
 // Agenda: a list of days with their items, like the original Phase 1 screen.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { weatherBadge, weatherOn } from "../weather";
 import {
   addDays,
   compareForDay,
@@ -97,7 +98,10 @@ export function renderAgenda(root: HTMLElement, ctx: ViewContext): void {
   for (const day of grouped) {
     const section = el("section", "day");
     if (daysBetween(today, day.date) === 0) section.classList.add("today");
-    section.append(el("h2", "day-label", dayLabel(day.date, today)));
+    const label = el("h2", "day-label", dayLabel(day.date, today));
+    const weather = weatherOn(day.date);
+    if (weather) label.append(weatherBadge(weather, true));
+    section.append(label);
     const items = el("ul", "items");
     for (const item of day.items) items.append(renderItem(item, day.date, ctx));
     section.append(items);

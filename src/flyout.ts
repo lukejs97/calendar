@@ -21,6 +21,7 @@ import { openDetails } from "./details";
 import { el } from "./dom";
 import { openEdit, openNew } from "./event-form";
 import { announceChange, onChangeElsewhere } from "./sync";
+import { refreshWeather } from "./weather";
 import {
   addDays,
   addMonths,
@@ -63,6 +64,8 @@ function range() {
 }
 
 async function load(): Promise<void> {
+  // The weather comes separately; redraw when it does.
+  void refreshWeather().then((fresh) => fresh && agenda && draw());
   const { from, to } = range();
   const request = ++latestRequest;
   if (!agenda) {

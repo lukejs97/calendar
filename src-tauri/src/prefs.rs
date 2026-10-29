@@ -3,7 +3,7 @@
 //! `preferences.json` in the app's config folder. The window's own settings
 //! (e.g. the multi-day view's days) stay in its local storage.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
@@ -25,6 +25,9 @@ pub struct Prefs {
     /// default: shown, unless they look like a Google account's (already
     /// shown from Google directly).
     pub apple_calendars_shown: BTreeMap<String, bool>,
+    /// Google calendars hidden in Settings, by account email, then calendar
+    /// ID. Every other calendar is shown.
+    pub google_calendars_hidden: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Default for Prefs {
@@ -35,6 +38,7 @@ impl Default for Prefs {
             apple_calendar: false,
             apple_reminders: false,
             apple_calendars_shown: BTreeMap::new(),
+            google_calendars_hidden: BTreeMap::new(),
         }
     }
 }
@@ -57,6 +61,26 @@ pub fn get() -> Prefs {
     PREFS.lock().expect("not poisoned").clone().unwrap_or_default()
 }
 
+/// Whether the Google calendar `id` of `account` is shown (not hidden in Settings).
+pub fn google_calendar_shown(account: &str, id: &str) -> bool {
+    !get().google_calendars_hidden.get(account).is_some_and(|hidden| hidden.contains(id))
+}
+
+/// Shows or hides one Google calendar.
+pub fn set_google_calendar_shown(account: &str, id: &str, shown: bool) {
+    let mut prefs = get();
+    let hidden = prefs.google_calendars_hidden.entry(account.to_string()).or_default();
+    if shown {
+        hidden.remove(id);
+    } else {
+        hidden.insert(id.to_string());
+    }
+    if hidden.is_empty() {
+        prefs.google_calendars_hidden.remove(account);
+    }
+    set(prefs);
+}
+
 /// Saves `prefs` (best effort: if the file can't be written, they last until quit).
 pub fn set(prefs: Prefs) {
     if let Some(Some(path)) = PATH.get()
@@ -76,6 +100,18 @@ pub fn set(prefs: Prefs) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn google_calendars_can_be_hidden_and_shown_again() {
+        assert!(google_calendar_shown("me@example.com", "work"));
+        set_google_calendar_shown("me@example.com", "work", false);
+        assert!(!google_calendar_shown("me@example.com", "work"));
+        assert!(google_calendar_shown("other@example.com", "work"));
+        set_google_calendar_shown("me@example.com", "work", true);
+        assert!(google_calendar_shown("me@example.com", "work"));
+        // Nothing left hidden for the account: no empty entry kept.
+        assert!(!get().google_calendars_hidden.contains_key("me@example.com"));
+    }
 
     #[test]
     fn missing_fields_take_their_defaults() {

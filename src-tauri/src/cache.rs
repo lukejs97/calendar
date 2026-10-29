@@ -80,7 +80,7 @@ impl AgendaCache {
             .iter()
             .filter(|item| {
                 let (s, e) = item_span(item);
-                s < end && e > start
+                s < end && e > start && !hidden(item)
             })
             .cloned()
             .collect();
@@ -89,7 +89,7 @@ impl AgendaCache {
 
     /// Every saved item, e.g. to search without internet.
     pub fn all(&self) -> Vec<AgendaItem> {
-        self.saved.lock().expect("not poisoned").items.clone()
+        self.saved.lock().expect("not poisoned").items.iter().filter(|item| !hidden(item)).cloned().collect()
     }
 
     /// Forgets one source's items: a removed account, or Todoist when disconnected.
@@ -115,6 +115,14 @@ impl AgendaCache {
         if std::fs::write(&temporary, json).is_ok() {
             let _ = std::fs::rename(&temporary, path);
         }
+    }
+}
+
+/// From a Google calendar hidden in Settings since it was saved.
+fn hidden(item: &AgendaItem) -> bool {
+    match (&item.source, &item.account, &item.list_id) {
+        (Source::Google, Some(account), Some(calendar)) => !crate::prefs::google_calendar_shown(account, calendar),
+        _ => false,
     }
 }
 

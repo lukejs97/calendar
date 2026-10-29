@@ -4,7 +4,7 @@ import type { Agenda, AgendaItem, SearchResults } from "../../src/api";
 import type { Context } from "./env";
 import { AppError, invalidInput, notSignedIn } from "./errors";
 import { accessToken, errorText, findEvents } from "./google";
-import { readAccounts, readTodoistToken } from "./store";
+import { readAccounts, readHiddenCalendars, readTodoistToken } from "./store";
 import * as todoist from "./todoist";
 import { addDays, daysBetween, midnight, parseDay, today } from "./zone";
 
@@ -25,13 +25,13 @@ export async function load(ctx: Context, from: string, to: string): Promise<Agen
 /** Fetches every Google account and Todoist at the same time. */
 async function collect(ctx: Context, from: string, to: string, query?: string) {
   const { env, zone } = ctx;
-  const accounts = await readAccounts(env);
+  const [accounts, hidden] = await Promise.all([readAccounts(env), readHiddenCalendars(env)]);
   if (!accounts.length) throw notSignedIn();
   const [start, end] = [midnight(from, zone), midnight(to, zone)];
 
   const [google, tasks] = await Promise.all([
     Promise.allSettled(
-      accounts.map(async (account) => findEvents(await accessToken(env, account), account, start, end, query)),
+      accounts.map(async (account) => findEvents(await accessToken(env, account), account, start, end, hidden[account.email] ?? [], query)),
     ),
     readTodoistToken(env).then((token) =>
       token ? todoist.tasksBetween(token, from, to, zone).then((t) => ({ ok: t }), (e: unknown) => ({ error: e })) : null,

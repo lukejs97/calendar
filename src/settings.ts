@@ -8,12 +8,14 @@ import {
   errorMessage,
   getPreferences,
   googleAccounts,
+  googleCalendars,
   locationAccess,
   setPreferences,
   type Access,
   type AppleStatus,
   type Preferences,
   removeGoogleAccount,
+  setGoogleCalendarShown,
   signIn,
   todoistConnect,
   todoistDisconnect,
@@ -21,6 +23,7 @@ import {
 } from "./api";
 import { el } from "./dom";
 import { DAY_COUNTS, multiDayCount, setMultiDayCount } from "./preferences";
+import { type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
@@ -31,8 +34,10 @@ export interface SettingsActions {
   todoistChanged(): void;
   /** After choosing how many days the multi-day view shows. */
   daysChanged(): void;
-  /** After turning Apple Calendar or Reminders on or off, or choosing calendars. */
+  /** After turning Apple Calendar or Reminders on or off, or choosing which calendars to show. */
   sourcesChanged(): void;
+  /** After choosing the weather's place or unit, or turning it off. */
+  weatherChanged(): void;
 }
 
 const isPhone = () => /iPhone|iPad|Android/.test(navigator.userAgent);
@@ -58,6 +63,11 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     dialog.close();
     void openAccountsSettings(actions.accountsChanged);
   });
+  const calendars = el("button", "pill-button", "Choose…");
+  calendars.addEventListener("click", () => {
+    dialog.close();
+    void openGoogleCalendars(actions);
+  });
   const todoistNote = el("span", "settings-note", "…");
   const todoist = el("button", "pill-button", "Set up…");
   todoist.addEventListener("click", () => {
@@ -74,11 +84,21 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     actions.daysChanged();
   });
 
+  const weather = weatherSettings();
+  const weatherButton = el("button", "pill-button", weather.place ? "Change…" : "Set up…");
+  weatherButton.addEventListener("click", () => {
+    dialog.close();
+    openWeatherSettings(actions);
+  });
+  const weatherNote = el("span", "settings-note", weather.place ? weather.place.name : "Off");
+
   const rows = el("div", "settings-rows");
   rows.append(
     settingsRow("Google accounts", accountsNote, accounts),
+    settingsRow("Calendars", el("span", "settings-note", "Which Google calendars to show"), calendars),
     settingsRow("Todoist", todoistNote, todoist),
     settingsRow("Multi-day view", el("span", "settings-note", "Days shown at once"), days),
+    settingsRow("Weather", weatherNote, weatherButton),
   );
   // The website (web/): removing an account removes it for every device, so
   // there's also a sign-out that only affects this browser.
@@ -192,6 +212,139 @@ function toggle(
   box.setAttribute("aria-label", label);
   box.addEventListener("change", () => void changed(box.checked, box));
   return box;
+}
+
+/** Choose the place to show the weather for (or turn it off), and °F or °C. */
+function openWeatherSettings(actions: SettingsActions): void {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "weather-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  const title = el("h2", undefined, "Weather");
+  title.id = "weather-title";
+  let settings = weatherSettings();
+  const save = (change: Partial<typeof settings>) => {
+    settings = { ...settings, ...change };
+    setWeatherSettings(settings);
+    actions.weatherChanged();
+    showCurrent();
+  };
+
+  const current = el("p");
+  const off = el("button", "text-button danger", "Turn off");
+  off.addEventListener("click", () => save({ place: null }));
+  const showCurrent = () => {
+    current.textContent = settings.place
+      ? `Showing the weather for ${settings.place.name}${settings.place.detail ? `, ${settings.place.detail}` : ""}.`
+      : "Choose a place to show its weather on each day (from Open-Meteo).";
+    off.hidden = !settings.place;
+  };
+  showCurrent();
+
+  const unit = el("select", "text-input settings-select");
+  unit.setAttribute("aria-label", "Temperature unit");
+  unit.append(new Option("°F", "fahrenheit"), new Option("°C", "celsius"));
+  unit.value = settings.unit;
+  unit.addEventListener("change", () => save({ unit: unit.value as Unit }));
+
+  const search = el("input", "text-input");
+  search.type = "search";
+  search.placeholder = "Town or city";
+  search.setAttribute("aria-label", "Town or city");
+  const results = el("div", "settings-rows weather-places");
+  const form = el("form", "weather-search");
+  const find = el("button", "pill-button", "Search");
+  form.append(search, find);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = search.value.trim();
+    if (!name) return;
+    find.disabled = true;
+    results.replaceChildren(el("p", "settings-note", "Searching…"));
+    try {
+      const places = await searchPlaces(name);
+      results.replaceChildren(...places.map((place) => placeRow(place)));
+      if (places.length === 0) results.append(el("p", "settings-note", "No places found by that name."));
+    } catch (err) {
+      results.replaceChildren(el("p", "error", errorMessage(err)));
+    } finally {
+      find.disabled = false;
+    }
+  });
+  const placeRow = (place: Place) => {
+    const row = el("button", "settings-row weather-place");
+    const text = el("div", "settings-text");
+    text.append(el("span", "settings-name", place.name), el("span", "settings-note", place.detail));
+    row.append(text);
+    row.addEventListener("click", () => {
+      save({ place });
+      results.replaceChildren();
+      search.value = "";
+    });
+    return row;
+  };
+
+  const close = el("button", "primary-button", "Done");
+  close.addEventListener("click", () => dialog.close());
+  const unitRow = el("div", "settings-rows");
+  unitRow.append(settingsRow("Temperature", el("span", "settings-note", "Fahrenheit or Celsius"), unit));
+  dialog.append(title, current, form, results, unitRow, buttonRow(off, close));
+  dialog.showModal();
+  search.focus();
+}
+
+/** Choose which of each Google account's calendars to show. */
+async function openGoogleCalendars(actions: SettingsActions): Promise<void> {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "google-calendars-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  const title = el("h2", undefined, "Calendars");
+  title.id = "google-calendars-title";
+  const help = el("p", undefined, "Hidden calendars' events don't appear, in views, search, alerts or the menu bar.");
+  const list = el("div", "settings-rows");
+  list.append(el("p", "settings-note", "Loading…"));
+  const close = el("button", "primary-button", "Done");
+  close.addEventListener("click", () => dialog.close());
+  dialog.append(title, help, list, buttonRow(close));
+  dialog.showModal();
+
+  try {
+    const accounts = await googleCalendars();
+    list.replaceChildren();
+    for (const account of accounts) {
+      list.append(el("h3", "settings-group", account.email));
+      if (account.error) list.append(el("p", "error", account.error));
+      for (const calendar of account.calendars) {
+        const box = toggle(calendar.name, calendar.shown, async (on, input) => {
+          try {
+            await setGoogleCalendarShown(account.email, calendar.id, on);
+            actions.sourcesChanged();
+          } catch (e) {
+            input.checked = !on;
+            list.prepend(el("p", "error", errorMessage(e)));
+          }
+        });
+        const name = el("span", "settings-name settings-calendar", calendar.name);
+        if (calendar.color) name.style.setProperty("--item-color", calendar.color);
+        const text = el("div", "settings-text");
+        text.append(name);
+        if (calendar.primary) text.append(el("span", "settings-note", "Main calendar"));
+        const row = el("label", "settings-row");
+        row.append(text, box);
+        list.append(row);
+      }
+    }
+    if (accounts.length === 0) list.append(el("p", "settings-note", "No Google accounts."));
+  } catch (e) {
+    list.replaceChildren(el("p", "error", errorMessage(e)));
+  }
 }
 
 /** Choose which of the Calendar app's calendars and Reminders' lists to show. */

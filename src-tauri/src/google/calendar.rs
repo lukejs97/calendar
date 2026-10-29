@@ -186,7 +186,9 @@ async fn find_events(
     to: DateTime<Local>,
     query: Option<&str>,
 ) -> Result<CalendarEvents> {
-    let calendars = list_calendars(http, token).await?;
+    // Leaving out the ones hidden in Settings.
+    let mut calendars = list_calendars(http, token).await?;
+    calendars.retain(|cal| crate::prefs::google_calendar_shown(account, &cal.id));
 
     // Fetch all calendars at the same time rather than one after another.
     let results =
@@ -225,6 +227,35 @@ pub struct EventCalendar {
     pub name: String,
     pub color: Option<String>,
     pub primary: bool,
+}
+
+/// One of an account's calendars, for choosing which to show.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedCalendar {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub primary: bool,
+    /// Not hidden in Settings.
+    pub shown: bool,
+}
+
+/// All of `account`'s calendars, your main ("primary") one first, then by name.
+pub async fn all_calendars(http: &reqwest::Client, token: &str, account: &str) -> Result<Vec<ListedCalendar>> {
+    let mut calendars: Vec<ListedCalendar> = list_calendars(http, token)
+        .await?
+        .into_iter()
+        .map(|cal| ListedCalendar {
+            name: cal.name(),
+            shown: crate::prefs::google_calendar_shown(account, &cal.id),
+            id: cal.id,
+            color: cal.background_color,
+            primary: cal.primary,
+        })
+        .collect();
+    calendars.sort_by_cached_key(|cal| (!cal.primary, cal.name.to_lowercase()));
+    Ok(calendars)
 }
 
 /// The calendars you can add events to, your main ("primary") one first.

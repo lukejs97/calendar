@@ -6,7 +6,7 @@ import * as agenda from "./agenda";
 import type { Context } from "./env";
 import { configError, invalidInput } from "./errors";
 import * as google from "./google";
-import { readAccounts, readTodoistToken, removeAccount, writeTodoistToken } from "./store";
+import { readAccounts, readTodoistToken, removeAccount, setCalendarShown, writeTodoistToken } from "./store";
 import * as todoist from "./todoist";
 
 type Args = Record<string, unknown>;
@@ -60,6 +60,13 @@ export const commands: Record<string, Command> = {
   },
   async event_calendars(ctx) {
     return google.eventCalendars(ctx.env);
+  },
+  async google_calendars(ctx) {
+    return google.allCalendars(ctx.env);
+  },
+  async set_google_calendar_shown(ctx, args) {
+    await setCalendarShown(ctx.env, text(args, "email"), text(args, "calendarId"), flag(args, "shown"));
+    return null;
   },
 
   // Events

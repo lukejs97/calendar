@@ -1,6 +1,7 @@
 // Google sign-in (server side) and Google Calendar API v3. A port of
 // src-tauri/src/google/auth.rs and calendar.rs; behavior should match them.
 import type {
+  AccountCalendarList,
   AccountCalendars,
   AgendaItem,
   Attendee,
@@ -10,7 +11,7 @@ import type {
 } from "../../src/api";
 import type { Env } from "./env";
 import { AppError, apiError, authFailed, configError, fetchOrFail, invalidInput, notSignedIn } from "./errors";
-import { type Account, readAccounts, removeAccount, writeAccounts } from "./store";
+import { type Account, readAccounts, readHiddenCalendars, removeAccount, writeAccounts } from "./store";
 import {
   addDays,
   dayOf,
@@ -270,15 +271,19 @@ export interface CalendarEvents {
   warnings: string[];
 }
 
-/** Events between `from` and `to` on all of the account's calendars, optionally matching `query`. */
+/**
+ * Events between `from` and `to` on the account's calendars (leaving out
+ * the ones in `hidden`), optionally matching `query`.
+ */
 export async function findEvents(
   token: string,
   account: Account,
   from: Date,
   to: Date,
+  hidden: string[],
   query?: string,
 ): Promise<CalendarEvents> {
-  const calendars = await listCalendars(token);
+  const calendars = (await listCalendars(token)).filter((c) => !hidden.includes(c.id));
   const results = await Promise.allSettled(calendars.map((c) => listEvents(token, c.id, from, to, query)));
   const items: AgendaItem[] = [];
   const warnings: string[] = [];
@@ -297,6 +302,30 @@ export async function findEvents(
 }
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Every account's calendars, and which are shown: the main one first, then by name. */
+export async function allCalendars(env: Env): Promise<AccountCalendarList[]> {
+  const [accounts, hidden] = await Promise.all([readAccounts(env), readHiddenCalendars(env)]);
+  return Promise.all(
+    accounts.map(async (account): Promise<AccountCalendarList> => {
+      try {
+        const token = await accessToken(env, account);
+        const calendars = (await listCalendars(token))
+          .map((c) => ({
+            id: c.id,
+            name: calendarName(c),
+            color: c.backgroundColor ?? null,
+            primary: !!c.primary,
+            shown: !(hidden[account.email] ?? []).includes(c.id),
+          }))
+          .sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
+        return { email: account.email, calendars, error: null };
+      } catch (e) {
+        return { email: account.email, calendars: [], error: errorText(e) };
+      }
+    }),
+  );
+}
 
 /** The calendars you can add events to, your main ("primary") one first. */
 export async function eventCalendars(env: Env): Promise<AccountCalendars[]> {

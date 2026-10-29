@@ -183,6 +183,16 @@ there with `slideTimeline` when it's among the days drawn.
   sleep). It runs in Rust, so it keeps going with no window open. Desktop
   only via `tauri-plugin-notification`; iPhone alerts would need scheduling
   ahead with iOS.
+- **Hidden calendars**: `prefs.rs` `google_calendars_hidden` on the desktop
+  (and in KV, `hiddenCalendars`, on the web). `find_events` skips those
+  calendars, so views, search, alerts and the menu bar all leave them out,
+  and the offline cache filters them too. Settings → Calendars lists every
+  calendar (`google_calendars`) and flips one (`set_google_calendar_shown`).
+- **Weather** (`weather.ts`): Open-Meteo's forecast (16 days, plus the past
+  7) for a place chosen in Settings, found with Open-Meteo's geocoding;
+  fetched by the page itself (the CSPs in `tauri.conf.json` and
+  `web/src/index.ts` allow its two hosts), kept in local storage and fetched
+  again after 3 hours. The views ask `weatherOn(day)` when they draw.
 - **Sync** (`main.ts` `sync`, `flyout.ts`): the open window fetches its
   range again every minute, and on focus, `visibilitychange` and `online`;
   it redraws only if the answer differs from what's drawn, and skips while

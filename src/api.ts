@@ -73,6 +73,19 @@ export interface EventCalendar {
   primary: boolean;
 }
 
+/** One of an account's calendars, for choosing which to show. Mirrors `ListedCalendar` in google/calendar.rs. */
+export interface ListedCalendar extends EventCalendar {
+  /** Not hidden in Settings. */
+  shown: boolean;
+}
+
+export interface AccountCalendarList {
+  email: string;
+  calendars: ListedCalendar[];
+  /** Why the calendars couldn't be listed, if they couldn't. */
+  error: string | null;
+}
+
 export interface AccountCalendars {
   email: string;
   /** False until an account added before the app could add events is added again. */
@@ -172,6 +185,11 @@ export const removeGoogleAccount = (email: string) => invoke<void>("remove_googl
 /** Events and tasks from a year back to a year ahead matching `query`. */
 export const search = (query: string) => invoke<SearchResults>("search", { query });
 export const eventCalendars = () => invoke<AccountCalendars[]>("event_calendars");
+/** Every Google account's calendars, and which are shown. */
+export const googleCalendars = () => invoke<AccountCalendarList[]>("google_calendars");
+/** Shows or hides one of a Google account's calendars. */
+export const setGoogleCalendarShown = (email: string, calendarId: string, shown: boolean) =>
+  invoke<void>("set_google_calendar_shown", { email, calendarId, shown });
 export const createEvent = (email: string, calendarId: string, event: EventDraft) =>
   invoke<void>("create_event", { email, calendarId, event });
 /**

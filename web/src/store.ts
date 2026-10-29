@@ -2,6 +2,7 @@
 //
 //   accounts            encrypted list of Google accounts and their refresh tokens
 //   todoist             encrypted Todoist API token
+//   hiddenCalendars     encrypted list of Google calendars hidden in Settings
 //   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
 //   oauth:<state>       a Google sign-in in progress (10 minutes)
 //
@@ -44,6 +45,25 @@ export async function removeAccount(env: Env, email: string): Promise<Account | 
   const removed = accounts.find((a) => a.email === email);
   if (removed) await writeAccounts(env, accounts.filter((a) => a.email !== email));
   return removed;
+}
+
+/** Google calendars hidden in Settings: account email → calendar IDs. */
+export type HiddenCalendars = Record<string, string[]>;
+
+export async function readHiddenCalendars(env: Env): Promise<HiddenCalendars> {
+  const json = await readEncrypted(env, "hiddenCalendars");
+  return json ? (JSON.parse(json) as HiddenCalendars) : {};
+}
+
+/** Shows or hides one Google calendar. */
+export async function setCalendarShown(env: Env, email: string, calendarId: string, shown: boolean): Promise<void> {
+  const hidden = await readHiddenCalendars(env);
+  const ids = new Set(hidden[email] ?? []);
+  if (shown) ids.delete(calendarId);
+  else ids.add(calendarId);
+  if (ids.size) hidden[email] = [...ids];
+  else delete hidden[email];
+  await writeEncrypted(env, "hiddenCalendars", Object.keys(hidden).length ? JSON.stringify(hidden) : null);
 }
 
 export const readTodoistToken = (env: Env) => readEncrypted(env, "todoist");

@@ -21,6 +21,7 @@ import { el } from "./dom";
 import { openEdit, openNew, type At } from "./event-form";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
+import { refreshWeather } from "./weather";
 import { openSettings } from "./settings";
 import {
   addDays,
@@ -284,6 +285,7 @@ async function load(): Promise<void> {
  */
 async function sync(): Promise<void> {
   if (document.hidden || !shown || document.querySelector(".dragging, .context-menu")) return;
+  void updateWeather();
   if (Date.now() - lastSync < SYNC_EVERY_MS / 4) return;
   lastSync = Date.now();
   const { from, to, key } = currentRange();
@@ -300,6 +302,11 @@ async function sync(): Promise<void> {
   } catch {
     // Offline or the like: the next try, or a refresh, says so.
   }
+}
+
+/** Fetches the weather if it's due (every few hours), and redraws with it. */
+async function updateWeather(): Promise<void> {
+  if ((await refreshWeather()) && shown && !document.querySelector(".dragging, .context-menu")) render(shown.agenda);
 }
 
 function goTo(view: ViewName, date: Date): void {
@@ -347,6 +354,7 @@ function showCalendar(): void {
   dock.hidden = false;
   app.replaceChildren(el("p", "empty", "Loading…"));
   void load();
+  void updateWeather();
   window.clearInterval(syncTimer);
   syncTimer = window.setInterval(sync, SYNC_EVERY_MS);
 }
@@ -453,6 +461,12 @@ function showSettings(): void {
     sourcesChanged: () => {
       cache.clear();
       void load();
+      announceChange();
+    },
+    weatherChanged: () => {
+      if (shown) render(shown.agenda); // the old place's weather goes at once
+      void updateWeather();
+      announceChange();
     },
   });
 }

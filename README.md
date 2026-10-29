@@ -34,6 +34,12 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   day, or its bottom edge to change its length (15-minute steps). In Month view
   and the all-day row, drag anything to another day. Tasks move too (not
   repeating ones).
+- **Choose calendars** (Settings → Calendars): hide any of your Google
+  calendars; their events stay out of every view, search, alerts and the menu
+  bar.
+- **Weather** (Settings → Weather): pick a town and each day shows its
+  forecast (icon, high and low) for about two weeks ahead, from
+  [Open-Meteo](https://open-meteo.com/), free and without an account.
 - **Search** (magnifier, `/` or Cmd/Ctrl+F): events and tasks from a year back
   to a year ahead.
 - **Menu bar** (notification area on Windows): the Minuteman icon opens a

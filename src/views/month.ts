@@ -2,6 +2,7 @@
 // "+N more" for the rest.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { weatherBadge, weatherOn } from "../weather";
 import { enableDayDrag } from "./drag";
 import {
   addDays,
@@ -86,7 +87,11 @@ export function renderMonth(root: HTMLElement, ctx: ViewContext): void {
     date.title = "Show this day";
     dayButton(date, ctx, day);
     const list = el("div", "month-items");
-    cell.append(date, list);
+    const head = el("div", "month-head");
+    const weather = weatherOn(day);
+    if (weather) head.append(weatherBadge(weather));
+    head.append(date);
+    cell.append(head, list);
     grid.append(cell);
     cells.push({ day, list });
   }

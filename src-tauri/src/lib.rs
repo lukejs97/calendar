@@ -245,6 +245,44 @@ fn events_changed() {
     alerts::refresh();
 }
 
+/// An account's calendars, for choosing which to show.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountCalendarList {
+    email: String,
+    calendars: Vec<google::calendar::ListedCalendar>,
+    /// Why the calendars couldn't be listed, if they couldn't.
+    error: Option<String>,
+}
+
+/// Every Google account's calendars, and which are shown.
+#[tauri::command]
+async fn google_calendars(state: State<'_, AppState>) -> Result<Vec<AccountCalendarList>> {
+    let (auth, http) = (&state.google_auth, &state.http);
+    let accounts = auth.accounts().await?;
+    let lists = join_all(accounts.iter().map(|email| async move {
+        let token = auth.access_token(email).await?;
+        google::calendar::all_calendars(http, &token, email).await
+    }))
+    .await;
+    Ok(accounts
+        .into_iter()
+        .zip(lists)
+        .map(|(email, list): (String, Result<_>)| match list {
+            Ok(calendars) => AccountCalendarList { email, calendars, error: None },
+            Err(e) => AccountCalendarList { email, calendars: Vec::new(), error: Some(e.to_string()) },
+        })
+        .collect())
+}
+
+/// Shows or hides one of a Google account's calendars.
+#[tauri::command]
+fn set_google_calendar_shown(email: String, calendar_id: String, shown: bool) {
+    prefs::set_google_calendar_shown(&email, &calendar_id, shown);
+    // Alerts and the menu bar follow what's shown.
+    events_changed();
+}
+
 /// Settings the Rust side keeps (see prefs.rs).
 #[tauri::command]
 fn get_preferences() -> prefs::Prefs {
@@ -456,6 +494,8 @@ pub fn run() {
             get_saved_agenda,
             search,
             event_calendars,
+            google_calendars,
+            set_google_calendar_shown,
             create_event,
             update_event,
             set_event_times,
