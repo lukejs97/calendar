@@ -121,8 +121,8 @@ Workaround: stay in **Testing** and add yourself as a test user:
 Try **Publish app** again now and then. Once it works, go to **Settings → Google
 accounts → Add account** and pick each account again, to get tokens without the 7-day limit.
 
-Filling in Branding's **App domain** section may unlock it (some people report
-that, though it isn't confirmed). The repo's `site/` folder is a small home page
+Filling in Branding's **App domain** section unlocks it (this project was
+published that way on 2026-10-29). The repo's `site/` folder is a small home page
 and privacy policy for that, published with GitHub Pages:
 
 1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub
@@ -132,8 +132,12 @@ and privacy policy for that, published with GitHub Pages:
    `https://lukejs97.github.io/minuteman/`, **Application privacy policy link**
    `https://lukejs97.github.io/minuteman/privacy.html`; leave Terms of service
    empty. Under **Authorized domains**, add `lukejs97.github.io`. **Save**.
-3. Hover over the greyed-out **Publish app** button on **Audience**: its tooltip
-   may say what's still missing.
+3. On **Audience**, click **Publish app**. If it's still greyed out, hover over
+   it: its tooltip may say what's still missing. Ignore the "Your app requires
+   verification" banner that appears afterwards (see below).
+4. Re-add each account in the app (Settings → Google accounts → Add account),
+   since sign-ins made in Testing still expire after 7 days. Don't upload an
+   app logo on Branding: that would make verification required.
 
 You do **not** need to submit the app for Google's verification. Unverified
 production apps work. Google limits them to 100 users in total and shows a
