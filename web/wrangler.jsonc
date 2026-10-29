@@ -1,0 +1,26 @@
+// Minuteman's web version: one Cloudflare Worker that serves the website
+// (the same files the desktop app shows, built into ../dist) and answers its
+// requests at /api/* and /auth/*. See README.md in this folder.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "minuteman",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-01",
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    // Every request goes through the Worker first, so it can add security
+    // headers to the pages too.
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "kv_namespaces": [
+    // Encrypted sign-in tokens and sessions (made with
+    // `npx wrangler kv namespace create STORE`).
+    { "binding": "STORE", "id": "5e8ed544177e4ee8a61345093aa235d6" }
+  ],
+  "vars": {
+    // Google accounts allowed to sign in to this site (comma-separated).
+    "ALLOWED_EMAILS": "lukesassa9@gmail.com"
+  }
+}

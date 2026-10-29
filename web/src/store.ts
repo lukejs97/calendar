@@ -1,0 +1,84 @@
+// What the server keeps, in Cloudflare KV (a simple key–value store):
+//
+//   accounts            encrypted list of Google accounts and their refresh tokens
+//   todoist             encrypted Todoist API token
+//   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
+//   oauth:<state>       a Google sign-in in progress (10 minutes)
+//
+// One person per deployment: the site's owner, who can add several Google
+// accounts. Tokens never leave the server; browsers only get a session cookie.
+import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
+import type { Env } from "./env";
+
+export interface Account {
+  email: string;
+  refreshToken: string;
+  /** Whether Google granted the permission to change events. */
+  canEditEvents: boolean;
+}
+
+const SESSION_DAYS = 30;
+export const SESSION_SECONDS = SESSION_DAYS * 24 * 60 * 60;
+
+async function readEncrypted(env: Env, key: string): Promise<string | null> {
+  const value = await env.STORE.get(key);
+  return value === null ? null : decrypt(env, value);
+}
+
+async function writeEncrypted(env: Env, key: string, value: string | null): Promise<void> {
+  if (value === null) await env.STORE.delete(key);
+  else await env.STORE.put(key, await encrypt(env, value));
+}
+
+export async function readAccounts(env: Env): Promise<Account[]> {
+  const json = await readEncrypted(env, "accounts");
+  return json ? (JSON.parse(json) as Account[]) : [];
+}
+
+export async function writeAccounts(env: Env, accounts: Account[]): Promise<void> {
+  await writeEncrypted(env, "accounts", accounts.length ? JSON.stringify(accounts) : null);
+}
+
+export async function removeAccount(env: Env, email: string): Promise<Account | undefined> {
+  const accounts = await readAccounts(env);
+  const removed = accounts.find((a) => a.email === email);
+  if (removed) await writeAccounts(env, accounts.filter((a) => a.email !== email));
+  return removed;
+}
+
+export const readTodoistToken = (env: Env) => readEncrypted(env, "todoist");
+export const writeTodoistToken = (env: Env, token: string | null) => writeEncrypted(env, "todoist", token);
+
+/** Starts a session; returns the value for the browser's cookie. */
+export async function createSession(env: Env): Promise<string> {
+  const token = randomToken();
+  await env.STORE.put(`session:${await sha256(token)}`, "1", { expirationTtl: SESSION_SECONDS });
+  return token;
+}
+
+export async function hasSession(env: Env, token: string | null): Promise<boolean> {
+  if (!token) return false;
+  return (await env.STORE.get(`session:${await sha256(token)}`)) !== null;
+}
+
+export async function endSession(env: Env, token: string | null): Promise<void> {
+  if (token) await env.STORE.delete(`session:${await sha256(token)}`);
+}
+
+export interface PendingSignIn {
+  verifier: string;
+  /** Adding an account from a signed-in browser (any account may be added). */
+  signedIn: boolean;
+}
+
+export async function savePendingSignIn(env: Env, state: string, pending: PendingSignIn): Promise<void> {
+  await env.STORE.put(`oauth:${state}`, JSON.stringify(pending), { expirationTtl: 600 });
+}
+
+export async function takePendingSignIn(env: Env, state: string): Promise<PendingSignIn | null> {
+  const key = `oauth:${state}`;
+  const json = await env.STORE.get(key);
+  if (json === null) return null;
+  await env.STORE.delete(key);
+  return JSON.parse(json) as PendingSignIn;
+}

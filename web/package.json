@@ -1,0 +1,20 @@
+{
+  "name": "minuteman-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:site": "npm --prefix .. run build",
+    "dev": "npm run build:site && wrangler dev",
+    "deploy": "npm run build:site && wrangler deploy",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261023.1",
+    "typescript": "~6.0.3",
+    "wrangler": "^4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261023.1": true
+  }
+}

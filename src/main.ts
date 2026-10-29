@@ -473,8 +473,12 @@ function setUpControls(): void {
 }
 
 async function start(): Promise<void> {
-  // In a plain browser (`npm run dev`) there's no Rust side; use sample data.
-  if (import.meta.env.DEV && !isTauri()) (await import("./dev-mock")).install();
+  // In a plain browser there's no Rust side: during `npm run dev`, use sample
+  // data; on the website (web/), send commands to its server.
+  if (!isTauri()) {
+    if (import.meta.env.DEV) (await import("./dev-mock")).install();
+    else (await import("./web-bridge")).install();
+  }
 
   // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
   const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");

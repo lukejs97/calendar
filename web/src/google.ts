@@ -1,0 +1,572 @@
+// Google sign-in (server side) and Google Calendar API v3. A port of
+// src-tauri/src/google/auth.rs and calendar.rs; behavior should match them.
+import type {
+  AccountCalendars,
+  AgendaItem,
+  Attendee,
+  EventCalendar,
+  EventDraft,
+  EventTimes,
+} from "../../src/api";
+import type { Env } from "./env";
+import { AppError, apiError, authFailed, configError, fetchOrFail, invalidInput, notSignedIn } from "./errors";
+import { type Account, readAccounts, removeAccount, writeAccounts } from "./store";
+import {
+  addDays,
+  dayOf,
+  dayString,
+  parseDay,
+  type Wall,
+  wallClock,
+  wallFromMs,
+  wallMs,
+  wallToInstant,
+} from "./zone";
+
+const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
+const API = "https://www.googleapis.com/calendar/v3";
+
+/** Lets the app change events. Reading the calendar list needs `calendar.readonly`. */
+const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE];
+
+/** Refresh a little before Google's stated expiry so a request never races it. */
+const EXPIRY_MARGIN_MS = 60_000;
+
+function client(env: Env) {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    throw configError("The Google web client isn't configured: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.");
+  }
+  return { id: env.GOOGLE_CLIENT_ID, secret: env.GOOGLE_CLIENT_SECRET };
+}
+
+// ---------- Sign-in ----------
+
+export function authorizeUrl(env: Env, redirectUri: string, state: string, challenge: string): string {
+  const url = new URL(AUTH_URL);
+  url.search = new URLSearchParams({
+    client_id: client(env).id,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: SCOPES.join(" "),
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+    // "offline": also give a refresh token. "consent": even if this account
+    // approved the app before. "select_account": let you pick which account.
+    access_type: "offline",
+    prompt: "consent select_account",
+    include_granted_scopes: "true",
+  }).toString();
+  return url.toString();
+}
+
+interface TokenResponse {
+  access_token: string;
+  expires_in: number;
+  refresh_token?: string;
+  scope: string;
+}
+
+interface TokenError {
+  error: string;
+  error_description?: string;
+}
+
+async function postToken(env: Env, fields: Record<string, string>): Promise<TokenResponse | TokenError> {
+  const { id, secret } = client(env);
+  const response = await fetchOrFail(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: id, client_secret: secret, ...fields }),
+  });
+  return (await response.json()) as TokenResponse | TokenError;
+}
+
+const describe = (e: TokenError) => (e.error_description ? `${e.error} (${e.error_description})` : e.error);
+
+/** Finishes a sign-in: swaps the one-time code for tokens, and stores the account. */
+export async function finishSignIn(
+  env: Env,
+  code: string,
+  verifier: string,
+  redirectUri: string,
+  mayAddAnyAccount: boolean,
+): Promise<string> {
+  const tokens = await postToken(env, {
+    code,
+    code_verifier: verifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  });
+  if ("error" in tokens) throw authFailed(describe(tokens));
+  if (!tokens.refresh_token) throw authFailed("Google didn't return a refresh token");
+
+  const email = await primaryEmail(tokens.access_token);
+  const accounts = await readAccounts(env);
+  const allowed = env.ALLOWED_EMAILS.split(",").map((e) => e.trim().toLowerCase());
+  const known = accounts.some((a) => a.email === email);
+  if (!mayAddAnyAccount && !known && !allowed.includes(email.toLowerCase())) {
+    await revoke(tokens.refresh_token);
+    throw new AppError("auth", `Sign-in failed: ${email} isn't allowed on this site.`, 403);
+  }
+
+  const account: Account = {
+    email,
+    refreshToken: tokens.refresh_token,
+    canEditEvents: tokens.scope.split(" ").includes(EVENTS_SCOPE),
+  };
+  await writeAccounts(env, [...accounts.filter((a) => a.email !== email), account]);
+  remember(email, tokens);
+  return email;
+}
+
+export async function revoke(token: string): Promise<void> {
+  // Best effort: still forget the account if Google can't be reached.
+  await fetch(REVOKE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ token }),
+  }).catch(() => undefined);
+}
+
+/** Access tokens (about an hour each), kept only in this server instance's memory. */
+const accessTokens = new Map<string, { value: string; expiresAt: number }>();
+
+function remember(email: string, tokens: TokenResponse): void {
+  accessTokens.set(email, { value: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 });
+}
+
+/** A valid access token for `account`, refreshing it first if needed. */
+export async function accessToken(env: Env, account: Account): Promise<string> {
+  const cached = accessTokens.get(account.email);
+  if (cached && cached.expiresAt > Date.now() + EXPIRY_MARGIN_MS) return cached.value;
+
+  const tokens = await postToken(env, { refresh_token: account.refreshToken, grant_type: "refresh_token" });
+  if ("error" in tokens) {
+    // Revoked or expired (e.g. the project is in "Testing" and 7 days passed):
+    // forget the account so the site asks to add it again.
+    if (tokens.error === "invalid_grant") {
+      await removeAccount(env, account.email);
+      throw notSignedIn();
+    }
+    throw authFailed(describe(tokens));
+  }
+  remember(account.email, tokens);
+  return tokens.access_token;
+}
+
+export function forgetAccessToken(email: string): void {
+  accessTokens.delete(email);
+}
+
+// ---------- Calendar API ----------
+
+interface CalendarListEntry {
+  id: string;
+  summary?: string;
+  /** The name you gave a calendar someone else shares with you. */
+  summaryOverride?: string;
+  backgroundColor?: string;
+  /** "owner", "writer", "reader" or "freeBusyReader". */
+  accessRole?: string;
+  primary?: boolean;
+  defaultReminders?: Reminder[];
+}
+
+const calendarName = (c: CalendarListEntry) => c.summaryOverride ?? c.summary ?? c.id;
+const canWrite = (c: CalendarListEntry) => c.accessRole === "owner" || c.accessRole === "writer";
+
+interface Reminder {
+  method?: string;
+  minutes?: number;
+}
+
+interface GoogleEvent {
+  id: string;
+  status?: string;
+  summary?: string;
+  location?: string;
+  htmlLink?: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+  attendees?: {
+    self?: boolean;
+    responseStatus?: string;
+    email?: string;
+    displayName?: string;
+    organizer?: boolean;
+    resource?: boolean;
+  }[];
+  eventType?: string;
+  description?: string;
+  hangoutLink?: string;
+  conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+  reminders?: { useDefault?: boolean; overrides?: Reminder[] };
+  organizer?: { self?: boolean };
+  guestsCanModify?: boolean;
+  recurringEventId?: string;
+}
+
+/** Only the event fields the app uses, to keep replies (and the server's work) small. */
+const EVENT_FIELDS =
+  "nextPageToken,items(id,status,summary,location,htmlLink,start,end,eventType,description,hangoutLink," +
+  "attendees(self,responseStatus,email,displayName,organizer,resource),conferenceData/entryPoints(entryPointType,uri)," +
+  "reminders,organizer/self,guestsCanModify,recurringEventId)";
+
+const path = (...segments: string[]) => segments.map(encodeURIComponent).join("/");
+
+/** Sends a request to Google Calendar and reads the JSON reply, or Google's error message. */
+async function google<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetchOrFail(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers },
+  });
+  if (response.ok) return (response.status === 204 ? undefined : await response.json()) as T;
+  const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+  throw apiError(response.status, body?.error?.message ?? response.statusText);
+}
+
+/** Google returns long lists in pages; keep asking for the next page until there isn't one. */
+async function allPages<T>(token: string, url: URL): Promise<T[]> {
+  const all: T[] = [];
+  let pageToken: string | undefined;
+  do {
+    const page = new URL(url);
+    if (pageToken) page.searchParams.set("pageToken", pageToken);
+    const reply = await google<{ items?: T[]; nextPageToken?: string }>(token, page.toString());
+    all.push(...(reply.items ?? []));
+    pageToken = reply.nextPageToken;
+  } while (pageToken);
+  return all;
+}
+
+const listCalendars = (token: string) =>
+  allPages<CalendarListEntry>(token, new URL(`${API}/users/me/calendarList`));
+
+/** The signed-in account's email address, which is its primary calendar's ID. */
+async function primaryEmail(token: string): Promise<string> {
+  return (await google<{ id: string }>(token, `${API}/calendars/primary`)).id;
+}
+
+function listEvents(token: string, calendarId: string, from: Date, to: Date, query?: string) {
+  const url = new URL(`${API}/${path("calendars", calendarId, "events")}`);
+  url.searchParams.set("timeMin", from.toISOString());
+  url.searchParams.set("timeMax", to.toISOString());
+  // Expand repeating events into their individual occurrences.
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "250");
+  url.searchParams.set("fields", EVENT_FIELDS);
+  if (query) url.searchParams.set("q", query);
+  return allPages<GoogleEvent>(token, url);
+}
+
+export interface CalendarEvents {
+  items: AgendaItem[];
+  /** Calendars that failed to load; the rest are still shown. */
+  warnings: string[];
+}
+
+/** Events between `from` and `to` on all of the account's calendars, optionally matching `query`. */
+export async function findEvents(
+  token: string,
+  account: Account,
+  from: Date,
+  to: Date,
+  query?: string,
+): Promise<CalendarEvents> {
+  const calendars = await listCalendars(token);
+  const results = await Promise.allSettled(calendars.map((c) => listEvents(token, c.id, from, to, query)));
+  const items: AgendaItem[] = [];
+  const warnings: string[] = [];
+  calendars.forEach((calendar, i) => {
+    const result = results[i];
+    if (result.status === "fulfilled") {
+      for (const event of result.value) {
+        const item = toAgendaItem(account, calendar, event);
+        if (item) items.push(item);
+      }
+    } else {
+      warnings.push(`${calendarName(calendar)}: ${errorText(result.reason)}`);
+    }
+  });
+  return { items, warnings };
+}
+
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The calendars you can add events to, your main ("primary") one first. */
+export async function eventCalendars(env: Env): Promise<AccountCalendars[]> {
+  const accounts = await readAccounts(env);
+  return Promise.all(
+    accounts.map(async (account): Promise<AccountCalendars> => {
+      if (!account.canEditEvents) return { email: account.email, canEdit: false, calendars: [], error: null };
+      try {
+        const token = await accessToken(env, account);
+        const calendars: EventCalendar[] = (await listCalendars(token))
+          .filter(canWrite)
+          .map((c) => ({ id: c.id, name: calendarName(c), color: c.backgroundColor ?? null, primary: !!c.primary }))
+          .sort((a, b) => Number(b.primary) - Number(a.primary));
+        return { email: account.email, canEdit: true, calendars, error: null };
+      } catch (e) {
+        return { email: account.email, canEdit: false, calendars: [], error: errorText(e) };
+      }
+    }),
+  );
+}
+
+function toAgendaItem(account: Account, calendar: CalendarListEntry, event: GoogleEvent): AgendaItem | null {
+  if (event.status === "cancelled") return null;
+  // "Working from home/office" markers clutter an agenda.
+  if (event.eventType === "workingLocation") return null;
+  const attendees = event.attendees ?? [];
+  if (attendees.some((a) => a.self && a.responseStatus === "declined")) return null;
+
+  const startValue = event.start?.dateTime ?? event.start?.date;
+  if (!startValue) return null;
+  const allDay = !event.start?.dateTime;
+  const end = event.end?.dateTime ?? event.end?.date ?? null;
+
+  const conferenceUrl =
+    event.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
+    event.hangoutLink ??
+    findMeetingLink(event.location) ??
+    findMeetingLink(event.description) ??
+    null;
+  const reminders = allDay
+    ? []
+    : popupMinutes(
+        event.reminders && !event.reminders.useDefault ? (event.reminders.overrides ?? []) : (calendar.defaultReminders ?? []),
+      );
+  const organizedByYou = !event.organizer || !!event.organizer.self;
+  const guests: Attendee[] = attendees
+    .filter((a) => !a.resource)
+    .map((a) => ({
+      name: a.displayName ?? null,
+      email: a.email ?? null,
+      response: a.responseStatus ?? null,
+      organizer: !!a.organizer,
+      isSelf: !!a.self,
+    }));
+  const nonEmpty = (s?: string) => (s && s.trim() ? s : null);
+
+  return {
+    id: `google:${calendar.id}:${event.id}`,
+    source: "google",
+    kind: "event",
+    title: nonEmpty(event.summary) ?? "(No title)",
+    start: startValue,
+    end,
+    allDay,
+    location: nonEmpty(event.location),
+    color: calendar.backgroundColor ?? null,
+    listName: calendarName(calendar),
+    url: event.htmlLink ?? null,
+    completed: false,
+    overdue: false,
+    priority: null,
+    account: account.email,
+    listId: calendar.id,
+    sourceId: event.id,
+    seriesId: event.recurringEventId ?? null,
+    editable: account.canEditEvents && canWrite(calendar) && (organizedByYou || !!event.guestsCanModify),
+    recurring: !!event.recurringEventId,
+    description: nonEmpty(event.description),
+    attendees: guests,
+    conferenceUrl,
+    reminders,
+  };
+}
+
+const popupMinutes = (reminders: Reminder[]) =>
+  reminders.filter((r) => r.method === "popup" && r.minutes !== undefined).map((r) => r.minutes!);
+
+const MEETING_HOSTS = [
+  "zoom.us/",
+  "meet.google.com/",
+  "teams.microsoft.com/",
+  "teams.live.com/",
+  "webex.com/",
+  "whereby.com/",
+  "gotomeeting.com/",
+  "chime.aws/",
+];
+
+/** The first video-call link in `text` (a location or notes, possibly HTML). */
+function findMeetingLink(text?: string): string | null {
+  if (!text) return null;
+  const word = text
+    .replaceAll("&amp;", "&")
+    .split(/[\s"'<>()]+/)
+    .find((w) => w.startsWith("https://") && MEETING_HOSTS.some((host) => w.includes(host)));
+  return word ? word.replace(/[.,;]+$/, "") : null;
+}
+
+// ---------- Changing events ----------
+
+const isDay = (s: string) => parseDay(s) !== null;
+
+function parseTime(s: string): number {
+  const t = Date.parse(s);
+  if (Number.isNaN(t) || isDay(s)) throw invalidInput(`not an RFC 3339 time: ${JSON.stringify(s)}`);
+  return t;
+}
+
+/** The `start` and `end` Google expects, after checking them. */
+function timesJson(times: EventTimes): { start: object; end: object } {
+  if (times.allDay) {
+    if (!isDay(times.start) || !isDay(times.end)) throw invalidInput("not a YYYY-MM-DD date");
+    if (times.end <= times.start) throw invalidInput("the event must end after its first day");
+    return { start: { date: times.start }, end: { date: times.end } };
+  }
+  if (parseTime(times.end) < parseTime(times.start)) throw invalidInput("the event must end after it starts");
+  const at = (dateTime: string) => (times.timeZone ? { dateTime, timeZone: times.timeZone } : { dateTime });
+  return { start: at(times.start), end: at(times.end) };
+}
+
+function draftJson(draft: EventDraft): Record<string, unknown> {
+  const title = draft.title.trim();
+  if (!title) throw invalidInput("the event needs a title");
+  const text = (s: string | null) => (s ?? "").trim();
+  // An empty string clears a field when editing.
+  const body: Record<string, unknown> = {
+    summary: title,
+    ...timesJson(draft),
+    location: text(draft.location),
+    description: text(draft.description),
+  };
+  if (draft.alerts?.kind === "default") body.reminders = { useDefault: true };
+  if (draft.alerts?.kind === "custom") {
+    body.reminders = { useDefault: false, overrides: draft.alerts.minutes.map((minutes) => ({ method: "popup", minutes })) };
+  }
+  if (draft.recurrence) body.recurrence = draft.recurrence;
+  if (draft.guests) {
+    body.attendees = draft.guests.map((g) =>
+      g.response ? { email: g.email.trim(), responseStatus: g.response } : { email: g.email.trim() },
+    );
+  }
+  return body;
+}
+
+/** `calendars/{calendar}/events[/{event}]`, telling Google whether to email guests. */
+function eventsUrl(calendarId: string, eventId: string | null, notifyGuests: boolean): string {
+  const segments = eventId ? path("calendars", calendarId, "events", eventId) : path("calendars", calendarId, "events");
+  return `${API}/${segments}?sendUpdates=${notifyGuests ? "all" : "none"}`;
+}
+
+export async function createEvent(token: string, calendarId: string, draft: EventDraft): Promise<void> {
+  const hasGuests = !!draft.guests?.length;
+  await google(token, eventsUrl(calendarId, null, hasGuests), { method: "POST", body: JSON.stringify(draftJson(draft)) });
+}
+
+/** Saves an edited event. For one occurrence of a repeating event, only that one changes. */
+export async function updateEvent(
+  token: string,
+  calendarId: string,
+  eventId: string,
+  draft: EventDraft,
+  notifyGuests: boolean,
+): Promise<void> {
+  await google(token, eventsUrl(calendarId, eventId, notifyGuests), {
+    method: "PATCH",
+    body: JSON.stringify(draftJson(draft)),
+  });
+}
+
+/**
+ * Saves an edit made to every event in a repeating series, from one of its
+ * occurrences (`occurrence`: when that one was, before the edit). Times move
+ * by as much as the occurrence's did, so the series keeps its own first date.
+ */
+export async function updateSeries(
+  token: string,
+  zone: string,
+  calendarId: string,
+  seriesId: string,
+  occurrence: EventTimes,
+  draft: EventDraft,
+  notifyGuests: boolean,
+): Promise<void> {
+  const body = draftJson(draft);
+  delete body.start;
+  delete body.end;
+  const unchanged =
+    occurrence.allDay === draft.allDay && sameTime(occurrence.start, draft.start) && sameTime(occurrence.end, draft.end);
+  if (!unchanged) {
+    const series = await google<{ start?: { date?: string; dateTime?: string } }>(
+      token,
+      eventsUrl(calendarId, seriesId, false),
+    );
+    const firstDay = series.start?.date ?? (series.start?.dateTime ? dayOf(new Date(series.start.dateTime), zone) : null);
+    if (!firstDay) throw apiError(200, "Google sent a repeating event without a start");
+    Object.assign(body, timesJson(shiftSeries(firstDay, occurrence, draft, zone)));
+  }
+  await google(token, eventsUrl(calendarId, seriesId, notifyGuests), { method: "PATCH", body: JSON.stringify(body) });
+}
+
+function sameTime(a: string, b: string): boolean {
+  return a === b || (!isDay(a) && !isDay(b) && Date.parse(a) === Date.parse(b));
+}
+
+/** Local date and time of a `start`/`end` (midnight for whole days). */
+function localWall(s: string, allDay: boolean, zone: string): Wall {
+  if (allDay) {
+    const day = parseDay(s);
+    if (!day) throw invalidInput(`not a YYYY-MM-DD date: ${JSON.stringify(s)}`);
+    return day;
+  }
+  return wallClock(new Date(parseTime(s)), zone);
+}
+
+/** The series' times after an occurrence went from `occurrence` to `edited`. */
+function shiftSeries(firstDay: string, occurrence: EventTimes, edited: EventTimes, zone: string): EventTimes {
+  const was = localWall(occurrence.start, occurrence.allDay, zone);
+  const start = localWall(edited.start, edited.allDay, zone);
+  const end = localWall(edited.end, edited.allDay, zone);
+  const dayShift = Math.round((wallMs({ ...start, hour: 0, minute: 0, second: 0 }) - wallMs({ ...was, hour: 0, minute: 0, second: 0 })) / 86_400_000);
+  const newDay = parseDay(addDays(firstDay, dayShift))!;
+  const newStart = { ...newDay, hour: start.hour, minute: start.minute, second: start.second };
+  const newEnd = wallFromMs(wallMs(newStart) + (wallMs(end) - wallMs(start)));
+  const formatted = (w: Wall) => (edited.allDay ? dayString(w) : wallToInstant(w, zone).toISOString());
+  return { start: formatted(newStart), end: formatted(newEnd), allDay: edited.allDay, timeZone: edited.timeZone };
+}
+
+/** Moves an event to another of the same account's calendars. */
+export async function moveToCalendar(token: string, calendarId: string, eventId: string, destination: string) {
+  const url = `${API}/${path("calendars", calendarId, "events", eventId, "move")}?destination=${encodeURIComponent(destination)}`;
+  await google(token, url, { method: "POST" });
+}
+
+/** Changes only when an event happens (dragging it). */
+export async function setEventTimes(
+  token: string,
+  calendarId: string,
+  eventId: string,
+  times: EventTimes,
+  notifyGuests: boolean,
+): Promise<void> {
+  await google(token, eventsUrl(calendarId, eventId, notifyGuests), {
+    method: "PATCH",
+    body: JSON.stringify(timesJson(times)),
+  });
+}
+
+/** Deletes an event: a series' own ID deletes every occurrence; an occurrence's ID, just that one. */
+export async function deleteEvent(token: string, calendarId: string, eventId: string, notifyGuests: boolean) {
+  try {
+    await google(token, eventsUrl(calendarId, eventId, notifyGuests), { method: "DELETE" });
+  } catch (e) {
+    // 410 Gone: it was already deleted, which is what we wanted.
+    if (!(e instanceof AppError && e.message.startsWith("Google API error (410)"))) throw e;
+  }
+}
+
+/** The account with this email, or "not signed in". */
+export async function findAccount(env: Env, email: string): Promise<Account> {
+  const account = (await readAccounts(env)).find((a) => a.email === email);
+  if (!account) throw notSignedIn();
+  return account;
+}
