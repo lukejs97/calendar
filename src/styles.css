@@ -348,9 +348,31 @@ button:disabled {
     border-top: 1px solid var(--border);
   }
 
-  /* So the last events and days aren't hidden behind the buttons. */
-  main {
-    padding-bottom: 76px;
+  /* The calendar runs to the bottom edge, under the buttons and home bar;
+     what scrolls gets this much room at its end, so its last hour, day or
+     month can come up clear of them. */
+  body {
+    --dock-space: calc(78px + env(safe-area-inset-bottom));
+    padding-bottom: 0;
+  }
+
+  .tl-scroll::after {
+    content: "";
+    display: block;
+    height: var(--dock-space);
+  }
+
+  main .agenda {
+    padding-bottom: var(--dock-space);
+  }
+
+  main .year {
+    padding-bottom: calc(16px + var(--dock-space));
+  }
+
+  /* The month fills the screen without scrolling: it stops above the buttons. */
+  main .month {
+    padding-bottom: var(--dock-space);
   }
 }
 
