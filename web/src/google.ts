@@ -32,7 +32,9 @@ const API = "https://www.googleapis.com/calendar/v3";
 
 /** Lets the app change events. Reading the calendar list needs `calendar.readonly`. */
 const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE];
+/** Lets the Contacts page read and change your Google Contacts. */
+const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts";
+const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE];
 
 /** Refresh a little before Google's stated expiry so a request never races it. */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -119,6 +121,7 @@ export async function finishSignIn(
     email,
     refreshToken: tokens.refresh_token,
     canEditEvents: tokens.scope.split(" ").includes(EVENTS_SCOPE),
+    canUseContacts: tokens.scope.split(" ").includes(CONTACTS_SCOPE),
   };
   await writeAccounts(env, [...accounts.filter((a) => a.email !== email), account]);
   remember(email, tokens);
@@ -229,8 +232,8 @@ const EVENT_FIELDS =
 
 const path = (...segments: string[]) => segments.map(encodeURIComponent).join("/");
 
-/** Sends a request to Google Calendar and reads the JSON reply, or Google's error message. */
-async function google<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
+/** Sends a request to a Google API and reads the JSON reply, or Google's error message. */
+export async function google<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetchOrFail(url, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers },

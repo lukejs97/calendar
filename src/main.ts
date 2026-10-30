@@ -1,7 +1,6 @@
 // Caslon: the typeface the Declaration of Independence was first printed in.
 import "@fontsource/libre-caslon-text/latin-400.css";
 import "@fontsource/libre-caslon-text/latin-700.css";
-import { isTauri } from "@tauri-apps/api/core";
 import {
   authStatus,
   errorMessage,
@@ -16,7 +15,12 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { boot } from "./boot";
+import { GO_TO_DAY, openContacts } from "./contacts/open";
 import { openDetails, showItemMenu } from "./details";
+import { setUpDockMenu } from "./dock-menu";
 import { el, setItemMenu } from "./dom";
 import { openEdit, openNew, type At } from "./event-form";
 import { openSearch } from "./search";
@@ -31,6 +35,7 @@ import {
   itemStart,
   localTimeZone,
   overlaps,
+  parseDate,
   sameClockIn,
   startOfDay,
   startOfWeek,
@@ -56,6 +61,8 @@ const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!;
 const dock = document.querySelector<HTMLElement>("#dock")!;
 const menuButton = document.querySelector<HTMLButtonElement>("#menu-button")!;
 const menu = document.querySelector<HTMLElement>("#menu")!;
+/** Closes the phone's ☰ menu (set up in setUpMenu). */
+let closeMenu = () => {};
 
 const firstView = savedView();
 const state = { view: firstView, anchor: firstDay(firstView, new Date()) };
@@ -484,37 +491,6 @@ function showSettings(): void {
   });
 }
 
-/** One line of the phone menu; the views are ticked when they're on screen. */
-function menuItem(label: string, run: () => void, checked?: boolean): HTMLButtonElement {
-  const item = el("button", "menu-item");
-  item.setAttribute("role", checked === undefined ? "menuitem" : "menuitemradio");
-  if (checked !== undefined) item.setAttribute("aria-checked", String(checked));
-  item.append(el("span", "menu-check", checked ? "✓" : ""), el("span", "", label));
-  item.addEventListener("click", () => {
-    closeMenu();
-    run();
-  });
-  return item;
-}
-
-function openMenu(): void {
-  menu.replaceChildren(
-    ...VIEW_ORDER.map((name) => menuItem(viewLabel(name), () => switchView(name), name === state.view)),
-    el("hr", "menu-line"),
-    menuItem("Refresh", () => void load()),
-    el("hr", "menu-line"),
-    menuItem("Settings…", showSettings),
-  );
-  menu.hidden = false;
-  menuButton.setAttribute("aria-expanded", "true");
-  menu.querySelector<HTMLButtonElement>("[aria-checked=true]")?.focus();
-}
-
-function closeMenu(): void {
-  menu.hidden = true;
-  menuButton.setAttribute("aria-expanded", "false");
-}
-
 /**
  * iPhone: after the on-screen keyboard goes away, iOS can leave the page
  * scrolled a little, though it never scrolls by design; then buttons fixed
@@ -547,23 +523,13 @@ function placeArrows(): void {
 
 /** The phone's ☰ menu: the views, Refresh and Settings. */
 function setUpMenu(): void {
-  menuButton.addEventListener("click", () => (menu.hidden ? openMenu() : closeMenu()));
-  // A tap anywhere else, or Escape, closes it.
-  document.addEventListener("pointerdown", (e) => {
-    if (!menu.hidden && !(e.target instanceof Node && menu.parentElement!.contains(e.target))) closeMenu();
-  });
-  menu.addEventListener("keydown", (e) => {
-    const items = [...menu.querySelectorAll<HTMLButtonElement>(".menu-item")];
-    const at = items.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === "Escape") {
-      closeMenu();
-      menuButton.focus();
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
-    } else return;
-    e.preventDefault();
-    e.stopPropagation(); // not the calendar's arrow keys
-  });
+  closeMenu = setUpDockMenu(menuButton, menu, (line) => [
+    ...VIEW_ORDER.map((name) => line(viewLabel(name), () => switchView(name), name === state.view)),
+    el("hr", "menu-line"),
+    line("Refresh", () => void load()),
+    el("hr", "menu-line"),
+    line("Settings…", showSettings),
+  ]);
 }
 
 function setUpControls(): void {
@@ -586,8 +552,10 @@ function setUpControls(): void {
   document.querySelector("#new-event")!.addEventListener("click", () => newEvent());
   document.querySelector("#search")!.addEventListener("click", searchEvents);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
+  document.querySelector("#contacts")!.addEventListener("click", () => openContacts());
   document.querySelector("#dock-new")!.addEventListener("click", () => newEvent());
   document.querySelector("#dock-search")!.addEventListener("click", searchEvents);
+  document.querySelector("#dock-contacts")!.addEventListener("click", () => openContacts());
   setUpMenu();
   placeArrows();
 
@@ -608,6 +576,7 @@ function setUpControls(): void {
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
     else if (key === ",") showSettings();
+    else if (key === "c") openContacts();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;
@@ -677,23 +646,7 @@ function setUpControls(): void {
 }
 
 async function start(): Promise<void> {
-  // In a plain browser there's no Rust side: during `npm run dev`, use sample
-  // data; on the website (web/), send commands to its server.
-  if (!isTauri()) {
-    if (import.meta.env.DEV) (await import("./dev-mock")).install();
-    else (await import("./web-bridge")).install();
-  }
-
-  // In the app, right-clicking where Minuteman has no menu of its own shows
-  // nothing, rather than the web view's (Reload, Inspect…). Text fields and
-  // selected text keep theirs, for copy and paste.
-  if (isTauri()) {
-    document.addEventListener("contextmenu", (e) => {
-      const target = e.target as Element;
-      if (target.closest("input, textarea, [contenteditable]") || getSelection()?.toString()) return;
-      e.preventDefault();
-    });
-  }
+  await boot();
 
   // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
   const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");
@@ -712,6 +665,19 @@ async function start(): Promise<void> {
     cache.clear();
     void load();
   });
+  // Contacts asked for a day (someone's birthday): in Day view. On the
+  // desktop it says so from its window; elsewhere it comes as ?date=.
+  if (isTauri()) {
+    void listen<string>(GO_TO_DAY, (event) => {
+      if (!toolbar.hidden && /^\d{4}-\d{2}-\d{2}$/.test(event.payload)) goTo("day", parseDate(event.payload));
+    });
+  }
+  const askedDay = new URLSearchParams(location.search).get("date");
+  if (askedDay && /^\d{4}-\d{2}-\d{2}$/.test(askedDay)) {
+    state.view = "day";
+    state.anchor = firstDay("day", parseDate(askedDay));
+    history.replaceState(null, "", location.pathname);
+  }
   try {
     if (await authStatus()) showCalendar();
     else showSignedOut();

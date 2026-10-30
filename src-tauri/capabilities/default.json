@@ -1,12 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window, and the menu bar window on desktop",
-  "windows": ["main", "flyout"],
+  "description": "Capability for the main window, and the menu bar and Contacts windows on desktop",
+  "windows": ["main", "flyout", "contacts"],
   "permissions": [
     "core:default",
     "opener:default",
     "core:window:allow-hide",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "sms:*" }, { "url": "facetime:*" }, { "url": "facetime-audio:*" }]
+    }
   ]
 }

@@ -42,6 +42,9 @@
         <button id="search" class="icon-button" title="Search (/)" aria-label="Search">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
         </button>
+        <button id="contacts" class="icon-button" title="Contacts (C)" aria-label="Contacts">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" /><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6" /></svg>
+        </button>
         <button id="new-event" class="icon-button" title="New event (N)" aria-label="New event">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" /></svg>
         </button>
@@ -64,13 +67,22 @@
     </div>
     <div id="banner" aria-live="polite"></div>
     <main id="app"></main>
-    <!-- Phones: the menu, Search and New event float at the bottom, within thumb's reach. -->
+    <!-- Phones: the menu, Calendar | Contacts, Search and New event float at the bottom, within thumb's reach. -->
     <div id="dock" class="dock" hidden>
       <div class="dock-menu">
         <button id="menu-button" class="dock-button" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
         </button>
         <div id="menu" class="menu" role="menu" aria-label="Menu" hidden></div>
+      </div>
+      <!-- Calendar or Contacts. -->
+      <div class="dock-switch" role="group" aria-label="Show">
+        <button class="dock-switch-button" aria-label="Calendar" aria-pressed="true">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>
+        </button>
+        <button id="dock-contacts" class="dock-switch-button" aria-label="Contacts" aria-pressed="false">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" /><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6" /></svg>
+        </button>
       </div>
       <button id="dock-search" class="dock-button" aria-label="Search">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>

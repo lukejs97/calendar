@@ -18,6 +18,9 @@
 │ details.ts event/task details, Edit and Delete      │
 │ search.ts  search window                            │
 │ flyout.ts  the menu bar window (desktop)            │
+│ contacts/  Contacts (contacts.html): main.ts shell, │
+│            parse.ts the box, card.ts, form.ts       │
+│ boot.ts    what every page does first               │
 │ sync.ts    tells the other window about changes     │
 │ dev-mock.ts sample data for `npm run dev` in a      │
 │            browser (dev only)                       │
@@ -28,6 +31,9 @@
 │ agenda.rs          AgendaItem model, merge + sort   │
 │ google/auth.rs     OAuth PKCE + loopback, tokens    │
 │ google/calendar.rs Calendar API v3 client           │
+│ google/contacts.rs People API v1 (Google Contacts)  │
+│ contacts.rs        all accounts' contacts + saved   │
+│ interactions.rs    Contacts' Recent and History     │
 │ todoist.rs         Todoist API v1: tasks, add, done │
 │ search.rs          search across accounts/Todoist   │
 │ cache.rs           saved items for offline use      │
@@ -119,6 +125,63 @@ are `position: sticky`), with `scroll-snap-type: x mandatory` so it settles
 on a day. `ViewContext.slid` reports the first day shown; once it settles in
 another week, `main.ts` draws six weeks around it. Arrows and Today slide
 there with `slideTimeline` when it's among the days drawn.
+
+## Contacts (done)
+
+Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
+`vite.config.ts`), on top of Google Contacts.
+
+- **Where it opens:** on the desktop, its own window (`desktop::show_contacts`,
+  label `contacts`, made the first time and hidden on close), from the main
+  window's person button or `C`, the tray menu, or the global `⌥⌘K`
+  (`CONTACTS_SHORTCUT`). `show_contacts(query)` passes a query: the first time
+  as `window.__MINUTEMAN_CONTACTS_QUERY__`, later as a `contacts-shown` event.
+  On a phone and the website, `contacts/open.ts` goes to `contacts.html?q=…`
+  instead. An event's guest names (`details.ts`) open them there.
+- **Google:** the `contacts` scope (`CONTACTS_SCOPE` in google/auth.rs and
+  web/src/google.ts; `can_use_contacts`, like `can_edit_events`) and the
+  People API: `people/me/connections` (all pages), `people:createContact`,
+  `people/{id}:updateContact` with `updatePersonFields` listing only the
+  fields in the `ContactDraft` (left out = unchanged, empty = cleared) and the
+  `etag` it was read at, `:deleteContact`, and `contactGroups/starred/members:modify`
+  for Favorites. Resource names from the page are checked to be `people/<id>`.
+  Addresses are read and written as Google's `formattedValue`, so an address
+  is only sent back when it was edited. Accounts without the scope come back
+  with `canUse: false`, and the page offers **Allow…** (`sign_in` again).
+- **Offline** (`contacts.rs`): `contacts.json` beside `agenda.json`, replaced
+  per account on each fetch, updated on each change made here; used when no
+  account is reachable, and by `get_saved_contacts` to draw at once.
+- **The box** (`contacts/parse.ts`, no page code, so it can run anywhere):
+  `interpret()` turns the text into an `Intent`: a verb first ("call",
+  "text", "email", "facetime", "meet", "note", "map") and the longest run of
+  up to 4 words that finds someone is an action; otherwise
+  `parseDetails()` picks out notes, a birthday, emails, websites, addresses,
+  phone numbers, a nickname and "Job at Company", leaving the name. Details
+  nobody has are a new contact, or more for someone named in full; anything
+  else is a search (`model.ts` `matchScore`: each word starts a name word,
+  or is in a company, email or phone number). "meet Sam tomorrow 3pm" opens
+  New event with `eventSentence` (`openNew`'s `sentence`), so quick-parse.ts
+  reads the time and invites them.
+- **History and Recent** (`interactions.rs`, `contacts/history.ts`): a log of
+  `{ contactId, kind, at, detail }` (kinds: call, message, email, facetime,
+  meeting, met, note, added), stamped on the Rust side, at most 5000, in
+  `interactions.json` in the config folder (on the web, KV `interactions`,
+  encrypted). Logged when an action is started from Contacts (not when the
+  call happens: there's no way to know), a meeting saved from "meet…", a
+  note added, a contact added, or by hand ("called Sam about…", **Log…**).
+  Deleting a contact or removing an account drops its entries. Recent is
+  the 6 people with the latest entries; a card's History merges its entries
+  with past events found by `search`, a repeating event once (its latest).
+- **Birthdays → calendar:** clicking one calls `openCalendar(day)`
+  (`contacts/open.ts`): on the desktop `show_main`, then the
+  `calendar-go-to-day` event that main.ts listens for; elsewhere
+  `./?date=YYYY-MM-DD`, read once at start. Either shows Day view.
+- **The card** (`contacts/card.ts`): quick actions open `sms:`, `tel:`,
+  `mailto:`, `facetime:` (allowed in `capabilities/default.json`) or a maps
+  link; several numbers give a menu. "With Sam" searches the calendars
+  (`search`) for their email addresses, after the card has been up 300 ms.
+  Photos load from `*.googleusercontent.com` (allowed in both CSPs);
+  without one, initials on a colour. Notes added here are dated lines.
 
 ## Todoist (done)
 

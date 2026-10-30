@@ -4,10 +4,12 @@ mod apple;
 #[cfg(desktop)]
 mod alerts;
 mod cache;
+mod contacts;
 #[cfg(desktop)]
 mod desktop;
 mod error;
 mod google;
+mod interactions;
 mod prefs;
 mod search;
 mod secrets;
@@ -24,9 +26,12 @@ use tauri::{AppHandle, Manager, State};
 
 use agenda::Agenda;
 use cache::AgendaCache;
+use contacts::ContactsCache;
+use interactions::{Interaction, Interactions, NewInteraction};
 use error::{AppError, Result};
 use google::auth::GoogleAuth;
 use google::calendar::{EventCalendar, EventDraft, EventTimes};
+use google::contacts::{Contact, ContactDraft};
 
 pub(crate) struct AppState {
     pub(crate) http: reqwest::Client,
@@ -59,10 +64,14 @@ async fn google_accounts(state: State<'_, AppState>) -> Result<Vec<String>> {
 async fn remove_google_account(
     state: State<'_, AppState>,
     cache: State<'_, AgendaCache>,
+    contacts: State<'_, ContactsCache>,
+    interactions: State<'_, Interactions>,
     email: String,
 ) -> Result<()> {
     state.google_auth.remove_account(&email).await?;
     cache.forget(&email);
+    contacts.forget(&email);
+    interactions.forget_account(&email);
     events_changed();
     Ok(())
 }
@@ -246,6 +255,104 @@ async fn delete_event(state: State<'_, AppState>, target: EventRef, notify_guest
     Ok(())
 }
 
+/// Every Google account's contacts, for the Contacts window. Without
+/// internet, the ones saved last time.
+#[tauri::command]
+async fn get_contacts(state: State<'_, AppState>, cache: State<'_, ContactsCache>) -> Result<contacts::ContactList> {
+    contacts::load(&state.http, &state.google_auth, &cache).await
+}
+
+/// The contacts saved last time, straight away and without the network.
+#[tauri::command]
+async fn get_saved_contacts(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+) -> Result<Option<contacts::ContactList>> {
+    let list = contacts::saved(&state.google_auth, &cache).await?;
+    Ok(list.map(|list| contacts::ContactList { offline_since: None, ..list }))
+}
+
+/// Adds a contact to `email`'s Google Contacts; returns it as saved.
+#[tauri::command]
+async fn create_contact(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    email: String,
+    contact: ContactDraft,
+) -> Result<Contact> {
+    let token = state.google_auth.access_token(&email).await?;
+    let saved = google::contacts::create_contact(&state.http, &token, &email, &contact).await?;
+    cache.put(&saved);
+    Ok(saved)
+}
+
+/// Which contact: its account, Google's ID for it, and the version it was
+/// read at (`etag`; changes to an older version are turned down).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContactRef {
+    email: String,
+    resource_name: String,
+    etag: Option<String>,
+}
+
+/// Saves changes to a contact (fields left out stay as they are); returns it as saved.
+#[tauri::command]
+async fn update_contact(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    target: ContactRef,
+    contact: ContactDraft,
+) -> Result<Contact> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    let (http, email, name) = (&state.http, &target.email, &target.resource_name);
+    let saved = google::contacts::update_contact(http, &token, email, name, target.etag.as_deref(), &contact).await?;
+    cache.put(&saved);
+    Ok(saved)
+}
+
+#[tauri::command]
+async fn delete_contact(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    interactions: State<'_, Interactions>,
+    target: ContactRef,
+) -> Result<()> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::contacts::delete_contact(&state.http, &token, &target.resource_name).await?;
+    let id = format!("{}/{}", target.email, target.resource_name);
+    cache.remove(&id);
+    interactions.forget_contact(&id);
+    Ok(())
+}
+
+/// Your history with people in Contacts (see interactions.rs), oldest first.
+#[tauri::command]
+fn interactions(interactions: State<'_, Interactions>) -> Vec<Interaction> {
+    interactions.all()
+}
+
+/// Logs a call, message, note… with someone, now; returns it as kept.
+#[tauri::command]
+fn log_interaction(interactions: State<'_, Interactions>, interaction: NewInteraction) -> Result<Interaction> {
+    interactions.log(interaction)
+}
+
+/// Adds a contact to Favorites, or takes it out; returns it as saved.
+#[tauri::command]
+async fn set_contact_starred(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    target: ContactRef,
+    starred: bool,
+) -> Result<Contact> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    let saved =
+        google::contacts::set_starred(&state.http, &token, &target.email, &target.resource_name, starred).await?;
+    cache.put(&saved);
+    Ok(saved)
+}
+
 /// Events were added, changed or removed here: reload before checking alerts.
 fn events_changed() {
     #[cfg(desktop)]
@@ -426,6 +533,16 @@ fn show_main(app: AppHandle) {
     let _ = app;
 }
 
+/// Opens the Contacts window (desktop), showing what matches `query` if
+/// given. On a phone the page goes to contacts.html itself instead.
+#[tauri::command]
+fn show_contacts(app: AppHandle, query: Option<String>) {
+    #[cfg(desktop)]
+    desktop::show_contacts(&app, query.as_deref());
+    #[cfg(mobile)]
+    let _ = (app, query);
+}
+
 /// Detaches the menu bar window into a window of its own, or puts it back.
 #[tauri::command]
 fn set_flyout_detached(app: AppHandle, detached: bool) {
@@ -531,7 +648,10 @@ pub fn run() {
         .setup(|app| {
             let path = app.path().app_cache_dir().ok().map(|dir| dir.join("agenda.json"));
             app.manage(AgendaCache::load(path));
+            let path = app.path().app_cache_dir().ok().map(|dir| dir.join("contacts.json"));
+            app.manage(ContactsCache::load(path));
             prefs::init(app.path().app_config_dir().ok().map(|dir| dir.join("preferences.json")));
+            app.manage(Interactions::load(app.path().app_config_dir().ok().map(|dir| dir.join("interactions.json"))));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
             #[cfg(desktop)]
@@ -562,6 +682,15 @@ pub fn run() {
             event_recurrence,
             set_event_times,
             delete_event,
+            get_contacts,
+            get_saved_contacts,
+            create_contact,
+            update_contact,
+            delete_contact,
+            set_contact_starred,
+            interactions,
+            log_interaction,
+            show_contacts,
             todoist_status,
             todoist_connect,
             todoist_disconnect,

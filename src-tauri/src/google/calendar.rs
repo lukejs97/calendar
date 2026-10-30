@@ -675,7 +675,7 @@ async fn get_json<T: DeserializeOwned>(http: &reqwest::Client, token: &str, url:
 }
 
 /// Sends a request and reads the JSON reply, or Google's error message.
-async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T> {
+pub(crate) async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T> {
     let response = request.send().await?;
     if response.status().is_success() {
         return Ok(response.json().await?);

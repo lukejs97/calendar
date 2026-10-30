@@ -2,7 +2,17 @@
 // open http://localhost:1420), where the Rust side isn't available. Only
 // loaded in development, never in the built app.
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Agenda, AgendaItem, EventDraft, EventTimes, TaskDraft, TaskDue } from "./api";
+import type {
+  Agenda,
+  AgendaItem,
+  Contact,
+  ContactDraft,
+  EventDraft,
+  EventTimes,
+  Interaction,
+  TaskDraft,
+  TaskDue,
+} from "./api";
 import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
@@ -146,7 +156,110 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
   return items;
 }
 
+/** Sample people for the Contacts window: birthdays near today, a favourite, some with photos missing. */
+function sampleContacts(): Contact[] {
+  const today = startOfDay(new Date());
+  const inDays = (n: number, year: number | null) => {
+    const d = addDays(today, n);
+    return { year, month: d.getMonth() + 1, day: d.getDate() };
+  };
+  const person = (given: string, family: string, more: Partial<Contact> = {}): Contact => {
+    const id = `people/c${given.toLowerCase()}${family.toLowerCase()}`.replace(/[^a-z0-9/]/g, "");
+    return {
+      id: `preview@example.com/${id}`,
+      account: "preview@example.com",
+      resourceName: id,
+      etag: "%mock",
+      name: [given, family].filter(Boolean).join(" "),
+      givenName: given,
+      familyName: family || null,
+      nickname: null,
+      organization: null,
+      jobTitle: null,
+      emails: [],
+      phones: [],
+      addresses: [],
+      urls: [],
+      birthday: null,
+      notes: null,
+      photo: null,
+      starred: false,
+      ...more,
+    };
+  };
+  return [
+    person("Alex", "Kim", {
+      organization: "Acme",
+      jobTitle: "Engineering Manager",
+      emails: [{ value: "alex@example.com", label: "work" }],
+      phones: [{ value: "+1 415 555 0134", label: "work" }],
+      starred: true,
+    }),
+    person("Sam", "Lee", {
+      emails: [
+        { value: "sam@example.com", label: "work" },
+        { value: "sam.lee@gmail.com", label: "home" },
+      ],
+      phones: [
+        { value: "+1 415 555 0100", label: "mobile" },
+        { value: "+1 415 555 0199", label: "home" },
+      ],
+      addresses: [{ value: "42 Elm Street, Springfield, IL 62704", label: "home" }],
+      birthday: inDays(3, 1991),
+      notes: "Likes jazz and good coffee.",
+      starred: true,
+      nickname: "Sammy",
+    }),
+    person("Ana", "Díaz", {
+      organization: "Globex",
+      emails: [{ value: "ana@globex.example", label: "work" }],
+      birthday: inDays(0, null),
+    }),
+    person("Ben", "Okafor", { phones: [{ value: "(212) 555-0147", label: "mobile" }], urls: [{ value: "benokafor.dev", label: "homePage" }] }),
+    person("Chloé", "Martin", { emails: [{ value: "chloe@example.fr", label: null }], birthday: inDays(40, 1985) }),
+    person("Dr. Priya", "Natarajan", { organization: "Springfield Clinic", jobTitle: "Dentist", phones: [{ value: "555 0162", label: "work" }] }),
+    person("Grace", "Hopper", { organization: "US Navy", jobTitle: "Rear Admiral", birthday: { year: 1906, month: 12, day: 9 } }),
+    person("Jan", "van der Berg", { emails: [{ value: "jan@berg.example", label: "home" }] }),
+    person("Mom", "", { phones: [{ value: "+1 555 0110", label: "mobile" }], starred: true, birthday: inDays(10, 1960) }),
+    person("Zoe", "Park", { emails: [{ value: "zoe@example.com", label: null }] }),
+    person("", "", { name: "", givenName: null, organization: "Cafe Roma", phones: [{ value: "+1 415 555 0177", label: "main" }], addresses: [{ value: "1 Market St, San Francisco, CA", label: "work" }] }),
+  ];
+}
+
+/** A contact as the mock "Google" would save `draft`. */
+function contactFrom(base: Contact, draft: ContactDraft): Contact {
+  const c = { ...base };
+  if (draft.givenName !== undefined || draft.familyName !== undefined) {
+    c.givenName = draft.givenName || null;
+    c.familyName = draft.familyName || null;
+    c.name = [draft.givenName, draft.familyName].filter(Boolean).join(" ");
+  }
+  if (draft.nickname !== undefined) c.nickname = draft.nickname || null;
+  if (draft.organization !== undefined) c.organization = draft.organization || null;
+  if (draft.jobTitle !== undefined) c.jobTitle = draft.jobTitle || null;
+  for (const kind of ["emails", "phones", "addresses", "urls"] as const) if (draft[kind]) c[kind] = draft[kind]!;
+  if (draft.birthdays) c.birthday = draft.birthdays[0] ?? null;
+  if (draft.notes !== undefined) c.notes = draft.notes || null;
+  c.etag = `%${Date.now()}`;
+  return c;
+}
+
+/** A little history with the sample people, for Recent and their cards. */
+function sampleInteractions(): Interaction[] {
+  const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const id = (name: string) => `preview@example.com/people/c${name}`;
+  return [
+    { contactId: id("samlee"), kind: "met", at: ago(24 * 9), detail: "coffee at Cafe Roma" },
+    { contactId: id("benokafor"), kind: "email", at: ago(24 * 4), detail: "the lease" },
+    { contactId: id("mom"), kind: "call", at: ago(26), detail: null },
+    { contactId: id("samlee"), kind: "call", at: ago(3), detail: null },
+    { contactId: id("samlee"), kind: "note", at: ago(2), detail: "Starting a new job in January" },
+  ];
+}
+
 export function install(): void {
+  let contacts = sampleContacts();
+  const interactions = sampleInteractions();
   let accounts = ["preview@example.com"];
   let todoistConnected = true;
   const completedTasks = new Set<string>();
@@ -239,8 +352,11 @@ export function install(): void {
       case "search": {
         const query = (args as { query: string }).query.toLowerCase();
         const today = startOfDay(new Date());
-        const found = sampleItems(addDays(today, -14), addDays(today, 15)).filter((item) =>
-          item.title.toLowerCase().includes(query),
+        // Like Google: titles, and guests' names and addresses.
+        const found = sampleItems(addDays(today, -14), addDays(today, 15)).filter(
+          (item) =>
+            item.title.toLowerCase().includes(query) ||
+            item.attendees.some((a) => a.email?.toLowerCase().includes(query) || a.name?.toLowerCase().includes(query)),
         );
         const now = Date.now();
         const end = (item: AgendaItem) => new Date(item.end ?? item.start).getTime();
@@ -422,6 +538,51 @@ export function install(): void {
         ].map((c) => ({ ...c, shown: preferences.appleCalendarsShown[c.id] ?? c.shown }));
       case "location_access":
         return "granted";
+      case "get_contacts":
+      case "get_saved_contacts":
+        return {
+          accounts: accounts.map((email) => ({ email, canUse: email === "preview@example.com", error: null })),
+          // Sorted by name, as the Rust side does; people without one last.
+          contacts: contacts
+            .filter((c) => accounts.includes(c.account))
+            .sort((a, b) => Number(!a.name) - Number(!b.name) || (a.name || a.organization || "").localeCompare(b.name || b.organization || "")),
+          offlineSince: null,
+        };
+      case "create_contact": {
+        const { email, contact } = args as { email: string; contact: ContactDraft };
+        const id = `people/c${Date.now()}`;
+        const blank = { ...sampleContacts()[0], id: `${email}/${id}`, account: email, resourceName: id, starred: false };
+        const empty = { name: "", givenName: null, familyName: null, organization: null, jobTitle: null, emails: [], phones: [], urls: [], addresses: [], birthday: null, notes: null, nickname: null };
+        const saved = contactFrom({ ...blank, ...empty }, contact);
+        contacts.push(saved);
+        return saved;
+      }
+      case "update_contact": {
+        const { target, contact } = args as { target: { resourceName: string }; contact: ContactDraft };
+        const existing = contacts.find((c) => c.resourceName === target.resourceName);
+        if (!existing) throw { kind: "api", message: "Google API error (404): Not found" };
+        const saved = contactFrom(existing, contact);
+        contacts = contacts.map((c) => (c === existing ? saved : c));
+        return saved;
+      }
+      case "delete_contact": {
+        const { target } = args as { target: { resourceName: string } };
+        contacts = contacts.filter((c) => c.resourceName !== target.resourceName);
+        return null;
+      }
+      case "interactions":
+        return interactions;
+      case "log_interaction": {
+        const { interaction } = args as { interaction: Omit<Interaction, "at"> };
+        const entry = { ...interaction, at: new Date().toISOString() };
+        interactions.push(entry);
+        return entry;
+      }
+      case "set_contact_starred": {
+        const { target, starred } = args as { target: { resourceName: string }; starred: boolean };
+        contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, starred, etag: `%${Date.now()}` } : c));
+        return contacts.find((c) => c.resourceName === target.resourceName);
+      }
       default:
         console.info("mock IPC:", cmd, args);
         return null;

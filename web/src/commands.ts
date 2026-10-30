@@ -1,12 +1,31 @@
 // The commands the website calls at /api/<name>: the same names and
 // arguments as the desktop app's Rust commands (src-tauri/src/lib.rs), so
 // the shared screens work unchanged.
-import type { EventDraft, EventRef, EventTimes, TaskDraft, TaskDue } from "../../src/api";
+import type {
+  ContactDraft,
+  ContactRef,
+  EventDraft,
+  EventRef,
+  EventTimes,
+  Interaction,
+  InteractionKind,
+  TaskDraft,
+  TaskDue,
+} from "../../src/api";
 import * as agenda from "./agenda";
+import * as contacts from "./contacts";
 import type { Context } from "./env";
 import { configError, invalidInput } from "./errors";
 import * as google from "./google";
-import { readAccounts, readTodoistToken, removeAccount, setCalendarShown, writeTodoistToken } from "./store";
+import {
+  readAccounts,
+  readInteractions,
+  readTodoistToken,
+  removeAccount,
+  setCalendarShown,
+  writeInteractions,
+  writeTodoistToken,
+} from "./store";
 import * as todoist from "./todoist";
 
 type Args = Record<string, unknown>;
@@ -18,6 +37,18 @@ const text = (args: Args, name: string): string => {
   return value;
 };
 const flag = (args: Args, name: string) => args[name] === true;
+
+/** What can be logged, the most kept, and the longest detail: as in src-tauri/src/interactions.rs. */
+const INTERACTION_KINDS: InteractionKind[] = ["call", "message", "email", "facetime", "meeting", "met", "note", "added"];
+const MAX_INTERACTIONS = 5000;
+const MAX_DETAIL = 2000;
+
+/** Forgets the history with contacts `matching`. */
+async function forgetInteractions(ctx: Context, matching: (contactId: string) => boolean): Promise<void> {
+  const entries = await readInteractions(ctx.env);
+  const kept = entries.filter((e) => !matching(e.contactId));
+  if (kept.length !== entries.length) await writeInteractions(ctx.env, kept);
+}
 const value = <T>(args: Args, name: string): T => {
   if (!(name in args)) throw invalidInput(`${name} is missing`);
   return args[name] as T;
@@ -43,6 +74,7 @@ export const commands: Record<string, Command> = {
     if (removed) {
       google.forgetAccessToken(removed.email);
       await google.revoke(removed.refreshToken);
+      await forgetInteractions(ctx, (id) => id.startsWith(`${removed.email}/`));
     }
     return null;
   },
@@ -106,6 +138,47 @@ export const commands: Record<string, Command> = {
     const token = await tokenFor(ctx, target.email);
     await google.deleteEvent(token, target.calendarId, target.eventId, flag(args, "notifyGuests"));
     return null;
+  },
+
+  // Contacts
+  async get_contacts(ctx) {
+    return contacts.allContacts(ctx.env);
+  },
+  // Nothing is saved on the server for offline use; the site always fetches.
+  async get_saved_contacts() {
+    return null;
+  },
+  async create_contact(ctx, args) {
+    return contacts.createContact(ctx.env, text(args, "email"), value<ContactDraft>(args, "contact"));
+  },
+  async update_contact(ctx, args) {
+    return contacts.updateContact(ctx.env, value<ContactRef>(args, "target"), value<ContactDraft>(args, "contact"));
+  },
+  async delete_contact(ctx, args) {
+    const target = value<ContactRef>(args, "target");
+    await contacts.deleteContact(ctx.env, target);
+    await forgetInteractions(ctx, (id) => id === `${target.email}/${target.resourceName}`);
+    return null;
+  },
+  async interactions(ctx) {
+    return readInteractions(ctx.env);
+  },
+  /** Logs a call, message, note… with someone, now. */
+  async log_interaction(ctx, args) {
+    const { contactId, kind, detail } = value<{ contactId: string; kind: InteractionKind; detail?: string | null }>(
+      args,
+      "interaction",
+    );
+    if (!INTERACTION_KINDS.includes(kind)) throw invalidInput(`not a kind of interaction: ${JSON.stringify(kind)}`);
+    if (typeof contactId !== "string" || !contactId.includes("/people/")) throw invalidInput("not a contact");
+    const text = typeof detail === "string" ? detail.trim().slice(0, MAX_DETAIL) : "";
+    const entry: Interaction = { contactId, kind, at: new Date().toISOString(), detail: text || null };
+    const entries = [...(await readInteractions(ctx.env)), entry].slice(-MAX_INTERACTIONS);
+    await writeInteractions(ctx.env, entries);
+    return entry;
+  },
+  async set_contact_starred(ctx, args) {
+    return contacts.setStarred(ctx.env, value<ContactRef>(args, "target"), flag(args, "starred"));
   },
 
   // Todoist
