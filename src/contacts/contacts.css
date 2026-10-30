@@ -28,6 +28,11 @@
   .contacts-chrome .contacts-bar {
     max-width: 640px;
   }
+
+  /* The buttons at the far right, as in the calendar's header. */
+  .contacts-chrome .actions {
+    margin-left: auto;
+  }
 }
 
 /* ---------- List and card side by side ---------- */
