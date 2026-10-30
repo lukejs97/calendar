@@ -161,7 +161,11 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
       laneEnds[lane] = last;
     }
 
-    const bar = el("div", "tl-allday-item", item.title);
+    // The title in a box of its own, which keeps to the left edge of the days
+    // on screen, so a long bar that began off screen still says what it is.
+    const bar = el("div", "tl-allday-item");
+    const title = el("span", "tl-allday-title", item.title);
+    bar.append(title);
     setItemColor(bar, item);
     bar.style.gridColumn = `${first + 2} / ${last + 3}`; // +1 for the gutter, +1 because grid lines start at 1
     bar.style.gridRow = String(lane + 1);
@@ -169,6 +173,9 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     if (itemEnd(item) > rangeEnd) bar.classList.add("cont-right");
     if (item.kind === "event" && itemEnd(item) <= ctx.now) bar.classList.add("past");
     decorateTask(bar, item, ctx.toggleTask);
+    // A task's checkbox goes along with its title.
+    const check = bar.querySelector(".task-check");
+    if (check) title.prepend(check);
     makeOpenable(bar, item, ctx.openItem);
     // Drag along the row to another day; the day headers say which.
     const dayAt = (x: number) => {

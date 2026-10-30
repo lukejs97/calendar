@@ -1472,6 +1472,20 @@ main.loading > * {
 
 .tl-allday-item {
   margin: 0 2px;
+  /* Clipped but not a scroller, so its title can stick (below). */
+  overflow: clip;
+}
+
+/* A bar's title (and a task's checkbox) stays in view at the left edge of
+   the days on screen, just right of the hours, as long as the bar does. */
+.tl-allday-title {
+  position: sticky;
+  left: calc(var(--gutter) + 6px);
+  display: inline-block;
+  max-width: 100%;
+  overflow: clip;
+  text-overflow: ellipsis;
+  vertical-align: top;
 }
 
 .cont-left {
