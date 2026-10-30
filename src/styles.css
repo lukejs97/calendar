@@ -168,6 +168,10 @@ html {
 .account {
   margin: 0;
   font-size: 12px;
+  line-height: 1.4;
+  /* Its line's room even before the account (or count) has loaded, so the
+     header doesn't grow and move its buttons when it fills in. */
+  min-height: 1.4em;
   color: var(--on-chrome-muted);
 }
 
