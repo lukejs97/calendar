@@ -1057,11 +1057,21 @@ main.loading > * {
   max-height: calc(var(--dialog-room) - 64px);
 }
 
-/* Phones: at the top, so the search box stays put as results come and go. */
+/* Phones: at the bottom, just above the keyboard (search.ts sets
+   --keyboard to its height), with the search box at the bottom edge and the
+   results stacking up above it. */
 @media (max-width: 640px) {
   .search {
-    margin-top: 16px;
-    max-height: calc(var(--dialog-room) - 32px);
+    margin-bottom: calc(var(--keyboard, 0px) + 8px);
+    max-height: calc(var(--dialog-room) - var(--keyboard, 0px) - 24px);
+  }
+
+  .dialog.search[open] {
+    flex-direction: column-reverse;
+  }
+
+  .search .search-results {
+    flex: 0 1 auto;
   }
 }
 
