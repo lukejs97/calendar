@@ -68,5 +68,29 @@
       </section>
       <section id="card" class="contacts-card-pane" aria-live="polite"></section>
     </main>
+    <!-- Phones: as in the calendar, the menu, Calendar | Contacts, Search and
+         New contact float at the bottom, and the box floats just above them. -->
+    <div class="dock">
+      <div class="dock-menu">
+        <button id="menu-button" class="dock-button" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+        <div id="menu" class="menu" role="menu" aria-label="Menu" hidden></div>
+      </div>
+      <div class="dock-switch" role="group" aria-label="Show">
+        <button id="dock-calendar" class="dock-switch-button" aria-label="Calendar" aria-pressed="false">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>
+        </button>
+        <button class="dock-switch-button" aria-label="Contacts" aria-pressed="true">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" /><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6" /></svg>
+        </button>
+      </div>
+      <button id="dock-search" class="dock-button" aria-label="Search">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
+      </button>
+      <button id="dock-new" class="dock-button dock-new" aria-label="New contact">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      </button>
+    </div>
   </body>
 </html>

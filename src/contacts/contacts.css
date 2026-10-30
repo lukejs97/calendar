@@ -631,3 +631,48 @@ main.contacts-main {
 .card-birthday.card-link.today {
   color: var(--accent);
 }
+
+/* ---------- Phones: buttons and box at the bottom ---------- */
+
+@media (max-width: 640px) {
+  /* Its buttons are in the floating ones (and the ☰ menu) instead. */
+  .contacts-chrome .actions {
+    display: none;
+  }
+
+  /* The box floats above the buttons, within thumb's reach. */
+  .contacts-input {
+    position: fixed;
+    z-index: 20;
+    left: calc(24px + env(safe-area-inset-left));
+    right: calc(24px + env(safe-area-inset-right));
+    bottom: calc(24px + 50px + 12px);
+    width: auto;
+    height: 46px;
+    padding: 0 18px;
+    border-radius: 23px;
+    border-color: transparent;
+    background: var(--chrome);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.28);
+  }
+
+  /* Typing: just above the keyboard (main.ts measures it); the buttons, under it, hide. */
+  .keyboard-open .contacts-input {
+    bottom: calc(var(--keyboard, 0px) + 8px);
+  }
+
+  .keyboard-open .dock {
+    display: none !important;
+  }
+
+  .signed-out .contacts-input,
+  .signed-out .dock {
+    display: none !important;
+  }
+
+  /* What scrolls comes up clear of the box and buttons at its end. */
+  .contacts-list,
+  .contact-card {
+    padding-bottom: calc(24px + 50px + 12px + 46px + 16px + env(safe-area-inset-bottom));
+  }
+}

@@ -35,6 +35,7 @@ import {
 } from "../api";
 import { boot } from "../boot";
 import { ask, openDetails } from "../details";
+import { setUpDockMenu } from "../dock-menu";
 import { el, showMenu } from "../dom";
 import { openEdit, openNew } from "../event-form";
 import { openSettings } from "../settings";
@@ -61,6 +62,8 @@ const cardBox = document.querySelector<HTMLElement>("#card")!;
 const banner = document.querySelector<HTMLElement>("#banner")!;
 const countLine = document.querySelector<HTMLElement>("#account")!;
 const body = document.body;
+/** Phone-sized: the box and buttons float at the bottom (contacts.css). */
+const phone = window.matchMedia("(max-width: 640px)");
 
 let list: ContactList | undefined;
 /** What's logged with people (interactions.rs), oldest first. */
@@ -743,6 +746,26 @@ function setUp(): void {
   document.querySelector("#refresh")!.addEventListener("click", () => void load());
   document.querySelector("#new-contact")!.addEventListener("click", newContact);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
+  // Phones: the floating buttons at the bottom, as in the calendar, and a
+  // shorter hint in the box, which is narrower there.
+  const placeholder = () => {
+    input.placeholder = phone.matches ? "Search, add, or “call Sam”" : "Search, add “Jane Doe jane@example.com”, or “call Sam”";
+  };
+  phone.addEventListener("change", placeholder);
+  placeholder();
+  setUpDockMenu(document.querySelector("#menu-button")!, document.querySelector("#menu")!, (line) => [
+    line("Refresh", () => void load()),
+    el("hr", "menu-line"),
+    line("Settings…", showSettings),
+  ]);
+  document.querySelector("#dock-calendar")!.addEventListener("click", () => openCalendar());
+  document.querySelector("#dock-search")!.addEventListener("click", () => {
+    body.classList.remove("card-open"); // back to the list, where the results are
+    input.focus();
+    input.select();
+  });
+  document.querySelector("#dock-new")!.addEventListener("click", newContact);
+  keepBoxAboveKeyboard();
   if (!isTauri() || /iPhone|iPad|Android/.test(navigator.userAgent)) {
     document.querySelector<HTMLElement>("#calendar")!.title = "Back to the calendar";
   }
@@ -815,6 +838,27 @@ function showSettings(): void {
   });
 }
 
+/**
+ * Phones: the box floats above the buttons at the bottom, which the
+ * keyboard covers. While it's open, the box sits just above the keyboard
+ * instead (and the buttons hide). The keyboard's height is what the
+ * visible part of the page lost at its bottom.
+ */
+function keepBoxAboveKeyboard(): void {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const place = () => {
+    const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+    body.style.setProperty("--keyboard", `${covered}px`);
+    body.classList.toggle("keyboard-open", covered > 80);
+  };
+  viewport.addEventListener("resize", place);
+  viewport.addEventListener("scroll", place);
+  // iOS can leave the never-scrolling page scrolled after the keyboard goes
+  // (see keepPageInPlace in main.ts): put it back.
+  input.addEventListener("blur", () => window.setTimeout(() => window.scrollTo(0, 0), 100));
+}
+
 /** "+": the New contact form, filled in from the box if it reads as someone new. */
 function newContact(): void {
   if (!list) return;
@@ -834,6 +878,8 @@ function showQuery(query: string | null | undefined): void {
   }
   update();
   if (query && intent.kind === "search" && intent.matches[0]) select(intent.matches[0], true);
+  // Phones: not until you tap it (or Search), or the keyboard would cover the list.
+  if (phone.matches) return;
   input.focus();
   if (!query) input.select();
 }
