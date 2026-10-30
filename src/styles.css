@@ -109,6 +109,14 @@ button:disabled {
   display: none !important;
 }
 
+/* Pressing and holding on the calendar (a finger) is ours: no text
+   selection or the system's callout menu. */
+#app {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .past {
   opacity: 0.5;
 }
@@ -2147,6 +2155,15 @@ body.detached .fly-close {
   background: none;
   font-size: 13px;
   text-align: left;
+}
+
+/* Fingers (a press and hold): rows big enough to tap. */
+@media (pointer: coarse) {
+  .context-menu-item {
+    min-width: 200px;
+    padding: 11px 14px;
+    font-size: 16px;
+  }
 }
 
 .context-menu-item:hover,

@@ -217,6 +217,17 @@ there with `slideTimeline` when it's among the days drawn.
   the clock time shown back into an instant in its own zone
   (`sameClockIn` in time.ts). Apple Calendar's own floating events (no time
   zone) are marked too.
+- **Press and hold** (`dom.ts` `onLongPress`): a finger resting 500 ms
+  without moving more than 10 px. On items (`makeOpenable`) it, like a
+  right-click, shows quick actions (`details.ts` `showItemMenu`, through
+  `setItemMenu`); on day headings and empty spots (`views/create.ts`) it opens
+  New event there. The innermost element takes the press; the tap and the
+  system's own long-press menu that follow are swallowed. `#app` has no text
+  selection or callout, so iOS doesn't start one.
+- **iPhone page offset** (`main.ts` `keepPageInPlace`): after the keyboard
+  closes, iOS can leave the never-scrolling page scrolled, so fixed buttons
+  (the ☰ menu) stop answering taps where they're drawn; it's scrolled back
+  to the top when the keyboard, a popup or focus goes.
 - **Popups**: opening one popup from another (details → Edit, Settings and
   its screens) opens the new one before closing the old, so the dimmed
   background never drops for a frame; the background isn't redrawn while a

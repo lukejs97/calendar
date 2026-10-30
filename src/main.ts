@@ -16,8 +16,8 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
-import { openDetails } from "./details";
-import { el } from "./dom";
+import { openDetails, showItemMenu } from "./details";
+import { el, setItemMenu } from "./dom";
 import { openEdit, openNew, type At } from "./event-form";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
@@ -411,12 +411,15 @@ function changed(): void {
   void load();
 }
 
+const itemActions = {
+  toggleTask,
+  edit: (it: AgendaItem) => openEdit(it, changed),
+  deleted: changed,
+  open: (it: AgendaItem) => showDetails(it),
+};
+
 function showDetails(item: AgendaItem): void {
-  openDetails(item, {
-    toggleTask,
-    edit: (it) => openEdit(it, changed),
-    deleted: changed,
-  });
+  openDetails(item, itemActions);
 }
 
 /** Opens "New event" (or task); once it's added, shows the day it's on. */
@@ -510,6 +513,24 @@ function openMenu(): void {
 function closeMenu(): void {
   menu.hidden = true;
   menuButton.setAttribute("aria-expanded", "false");
+}
+
+/**
+ * iPhone: after the on-screen keyboard goes away, iOS can leave the page
+ * scrolled a little, though it never scrolls by design; then buttons fixed
+ * to the screen (the ☰ menu) are drawn in one place but answer taps in
+ * another, until the app restarts. Put it back whenever the keyboard or a
+ * popup goes.
+ */
+function keepPageInPlace(): void {
+  const settle = () => {
+    const typing = document.activeElement?.matches("input, textarea, select, [contenteditable]");
+    if (!typing && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+  };
+  window.visualViewport?.addEventListener("resize", () => window.setTimeout(settle, 50));
+  document.addEventListener("focusout", () => window.setTimeout(settle, 100));
+  document.addEventListener("close", () => window.setTimeout(settle, 50), true);
+  window.addEventListener("scroll", () => window.setTimeout(settle, 100), { passive: true });
 }
 
 /** Phones: the ‹ › buttons beside the title; otherwise in the toolbar. */
@@ -679,6 +700,9 @@ async function start(): Promise<void> {
   if (window.__MINUTEMAN_FLYOUT__ || flyoutPreview) return (await import("./flyout")).startFlyout();
 
   setUpControls();
+  // Right-click (or press and hold) an event or task: quick actions.
+  setItemMenu((item, x, y) => showItemMenu(item, x, y, itemActions));
+  keepPageInPlace();
   // Changed in the menu bar window: show it here too.
   document.addEventListener("visibilitychange", () => void sync());
   window.addEventListener("focus", () => void sync());

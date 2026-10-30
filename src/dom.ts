@@ -48,6 +48,75 @@ export function makeOpenable(node: HTMLElement, item: AgendaItem, open: (item: A
   node.addEventListener("keydown", (e) => {
     if (e.key === "Enter") open(item);
   });
+  // Quick actions: right-click, or press and hold.
+  node.addEventListener("contextmenu", (e) => {
+    if (!itemMenu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    itemMenu(item, e.clientX, e.clientY);
+  });
+  onLongPress(node, (press) => itemMenu?.(item, press.clientX, press.clientY));
+}
+
+/** Quick actions for an item (right-click, or press and hold), set by the page that shows items. */
+let itemMenu: ((item: AgendaItem, x: number, y: number) => void) | null = null;
+export function setItemMenu(show: (item: AgendaItem, x: number, y: number) => void): void {
+  itemMenu = show;
+}
+
+/** How long a finger rests, without moving, to press and hold. */
+const HOLD_MS = 500;
+/** Presses already taken by an element inside the one that hears it next. */
+const claimed = new WeakSet<Event>();
+
+/**
+ * Pressing and holding with a finger (on a touch screen; a mouse
+ * right-clicks instead): `held` runs with the press, unless the finger
+ * moved first (that's scrolling) or lifted. The tap, and the system's own
+ * long-press menu, that would follow are swallowed. The innermost element
+ * listening gets it.
+ */
+export function onLongPress(node: HTMLElement, held: (press: PointerEvent) => void): void {
+  node.addEventListener("pointerdown", (down) => {
+    if (down.pointerType !== "touch" || !down.isPrimary || claimed.has(down)) return;
+    claimed.add(down);
+    const stop = () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointermove", moved);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("contextmenu", quiet, true);
+    };
+    const moved = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) > 10) stop();
+    };
+    // Android's own long-press menu would come first; this one decides.
+    const quiet = (e: Event) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    const timer = window.setTimeout(() => {
+      stop();
+      swallow("click");
+      swallow("contextmenu");
+      navigator.vibrate?.(10);
+      held(down);
+    }, HOLD_MS);
+    window.addEventListener("pointermove", moved, { passive: true });
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("contextmenu", quiet, true);
+  });
+}
+
+/** Swallows the next `type` event (within a moment), e.g. the tap that ends a long press. */
+function swallow(type: "click" | "contextmenu"): void {
+  const eat = (e: Event) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener(type, eat, { capture: true, once: true });
+  window.setTimeout(() => window.removeEventListener(type, eat, true), 800);
 }
 
 /**

@@ -1,7 +1,7 @@
 // Adding where you point: double-click an empty spot for New event, or
 // right-click it for a menu (New Event, New Task), at that day and, in the
-// day and week views, that time.
-import { showMenu } from "../dom";
+// day and week views, that time. On a touch screen, press and hold.
+import { onLongPress, showMenu } from "../dom";
 import type { ViewContext } from "./types";
 
 /** What's under the pointer: a day, and a time unless it's all day. */
@@ -45,6 +45,8 @@ export function dayButton(button: HTMLElement, ctx: ViewContext, day: Date): voi
       ["New Task", () => create(day, true, "task")],
     ]);
   });
+  // A finger: press and hold for a new event that day.
+  onLongPress(button, () => create(day, true, "event"));
 }
 
 /** Lets `node` add an item at the spot `at` finds (null where there's none). */
@@ -66,5 +68,11 @@ export function enableCreate(node: HTMLElement, ctx: ViewContext, at: (e: MouseE
       ["New Event", () => create(found.start, found.allDay, "event")],
       ["New Task", () => create(found.start, found.allDay, "task")],
     ]);
+  });
+  // A finger: press and hold an empty spot for a new event there, at the
+  // time under the finger.
+  onLongPress(node, (press) => {
+    const found = spot(press);
+    if (found) create(found.start, found.allDay, "event");
   });
 }

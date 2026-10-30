@@ -17,8 +17,8 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
-import { openDetails } from "./details";
-import { el } from "./dom";
+import { openDetails, showItemMenu } from "./details";
+import { el, setItemMenu } from "./dom";
 import { openEdit, openNew } from "./event-form";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
@@ -235,8 +235,15 @@ function changed(): void {
   void load();
 }
 
+const itemActions = {
+  toggleTask,
+  edit: (it: AgendaItem) => openEdit(it, changed),
+  deleted: changed,
+  open: (it: AgendaItem) => showDetails(it),
+};
+
 function showDetails(item: AgendaItem): void {
-  openDetails(item, { toggleTask, edit: (it) => openEdit(it, changed), deleted: changed });
+  openDetails(item, itemActions);
 }
 
 function newEvent(): void {
@@ -259,6 +266,8 @@ function showSignedOut(): void {
 
 export async function startFlyout(): Promise<void> {
   document.body.classList.add("flyout");
+  // Right-click (or press and hold) an event or task: quick actions.
+  setItemMenu((item, x, y) => showItemMenu(item, x, y, itemActions));
   // Its own header replaces the main window's.
   for (const node of document.querySelectorAll<HTMLElement>(".chrome")) node.hidden = true;
 

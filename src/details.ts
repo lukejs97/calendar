@@ -2,7 +2,7 @@
 // the video call, guests, and notes. Opens on click instead of the browser.
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
-import { el, setItemColor } from "./dom";
+import { el, setItemColor, showMenu } from "./dom";
 import { describeTimes, itemEnd, itemStart } from "./time";
 
 const RESPONSES: Record<string, string> = {
@@ -121,6 +121,39 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   dialog.append(title, rows, error, buttons);
   dialog.showModal();
   close.focus();
+}
+
+/**
+ * Quick actions for an item, at (x, y): right-click it, or press and hold on
+ * a touch screen. The same choices as its details popup.
+ */
+export function showItemMenu(
+  item: AgendaItem,
+  x: number,
+  y: number,
+  actions: DetailActions & { open(item: AgendaItem): void },
+): void {
+  const changeable = item.editable || (item.kind === "task" && item.source === "todoist");
+  const entries: [string, () => void][] = [["Open", () => actions.open(item)]];
+  if (changeable) entries.push(["Edit", () => actions.edit(item)]);
+  if (item.kind === "task") entries.push([item.completed ? "Mark not done" : "Complete", () => actions.toggleTask(item)]);
+  if (item.url) {
+    const url = item.url;
+    entries.push([item.source === "todoist" ? "Open in Todoist" : "Open in Google Calendar", () => void openUrl(url)]);
+  }
+  if (changeable) {
+    entries.push([
+      "Delete…",
+      async () => {
+        try {
+          if (await deleteItem(item)) actions.deleted(item);
+        } catch (e) {
+          await ask(`Couldn't delete "${item.title}"`, errorMessage(e), []);
+        }
+      },
+    ]);
+  }
+  showMenu(x, y, entries);
 }
 
 /**
