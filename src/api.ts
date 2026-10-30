@@ -270,6 +270,20 @@ export const contactRef = (contact: Contact): ContactRef => ({
   etag: contact.etag,
 });
 
+/** What can be logged with someone (see src-tauri/src/interactions.rs). */
+export type InteractionKind = "call" | "message" | "email" | "facetime" | "meeting" | "met" | "note" | "added";
+
+/** Something you did with someone. Mirrors `Interaction` in src-tauri/src/interactions.rs. */
+export interface Interaction {
+  /** The contact's `id`. */
+  contactId: string;
+  kind: InteractionKind;
+  /** When (ISO timestamp). */
+  at: string;
+  /** A note's text, an email's subject, what a meeting was… */
+  detail: string | null;
+}
+
 /** Shape of every error a command rejects with (see src-tauri/src/error.rs). */
 export interface AppError {
   kind: "notSignedIn" | "config" | "auth" | "input" | "api" | "network" | "keychain" | "io";
@@ -342,6 +356,11 @@ export const deleteContact = (target: ContactRef) => invoke<void>("delete_contac
 /** Adds a contact to Favorites, or takes it out; resolves to it as saved. */
 export const setContactStarred = (target: ContactRef, starred: boolean) =>
   invoke<Contact>("set_contact_starred", { target, starred });
+/** Your history with people in Contacts, oldest first. */
+export const getInteractions = () => invoke<Interaction[]>("interactions");
+/** Logs a call, message, note… with someone, now; resolves to it as kept. */
+export const logInteraction = (contactId: string, kind: InteractionKind, detail: string | null = null) =>
+  invoke<Interaction>("log_interaction", { interaction: { contactId, kind, detail } });
 /** Desktop: opens the Contacts window, showing what matches `query`. */
 export const showContacts = (query: string | null = null) => invoke<void>("show_contacts", { query });
 

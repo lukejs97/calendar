@@ -517,3 +517,112 @@ main.contacts-main {
 .contacts-input::-webkit-search-cancel-button {
   display: none;
 }
+
+/* ---------- History ---------- */
+
+.card-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-latest {
+  color: var(--accent);
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A line down the left, a dot for each entry, as a timeline. */
+.history-line {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-left: 6px;
+  padding: 5px 0 5px 16px;
+  border-left: 2px solid var(--border);
+}
+
+.history-line::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 11px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.history-call::before,
+.history-message::before,
+.history-email::before,
+.history-facetime::before {
+  background: var(--accent);
+}
+
+.history-met::before,
+.history-meeting::before {
+  background: var(--chrome);
+}
+
+.history-note::before,
+.history-added::before {
+  background: var(--gold);
+}
+
+.history-what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-detail {
+  color: var(--muted);
+}
+
+.history-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* A past event: the calendar's colour for its dot; opens it. */
+.history-event {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  text-align: left;
+  background: none;
+}
+
+.history-line:has(.history-event)::before {
+  background: var(--item-color, var(--muted));
+}
+
+.history-event:hover .history-what {
+  text-decoration: underline;
+}
+
+.history-more {
+  margin: 4px 0 0 24px;
+}
+
+.card-birthday.card-link {
+  color: var(--text);
+}
+
+.card-birthday.card-link.today {
+  color: var(--accent);
+}

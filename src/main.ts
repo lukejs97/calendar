@@ -15,8 +15,10 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { boot } from "./boot";
-import { openContacts } from "./contacts/open";
+import { GO_TO_DAY, openContacts } from "./contacts/open";
 import { openDetails, showItemMenu } from "./details";
 import { el, setItemMenu } from "./dom";
 import { openEdit, openNew, type At } from "./event-form";
@@ -32,6 +34,7 @@ import {
   itemStart,
   localTimeZone,
   overlaps,
+  parseDate,
   sameClockIn,
   startOfDay,
   startOfWeek,
@@ -700,6 +703,19 @@ async function start(): Promise<void> {
     cache.clear();
     void load();
   });
+  // Contacts asked for a day (someone's birthday): in Day view. On the
+  // desktop it says so from its window; elsewhere it comes as ?date=.
+  if (isTauri()) {
+    void listen<string>(GO_TO_DAY, (event) => {
+      if (!toolbar.hidden && /^\d{4}-\d{2}-\d{2}$/.test(event.payload)) goTo("day", parseDate(event.payload));
+    });
+  }
+  const askedDay = new URLSearchParams(location.search).get("date");
+  if (askedDay && /^\d{4}-\d{2}-\d{2}$/.test(askedDay)) {
+    state.view = "day";
+    state.anchor = firstDay("day", parseDate(askedDay));
+    history.replaceState(null, "", location.pathname);
+  }
   try {
     if (await authStatus()) showCalendar();
     else showSignedOut();

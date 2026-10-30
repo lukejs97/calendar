@@ -33,6 +33,7 @@
 │ google/calendar.rs Calendar API v3 client           │
 │ google/contacts.rs People API v1 (Google Contacts)  │
 │ contacts.rs        all accounts' contacts + saved   │
+│ interactions.rs    Contacts' Recent and History     │
 │ todoist.rs         Todoist API v1: tasks, add, done │
 │ search.rs          search across accounts/Todoist   │
 │ cache.rs           saved items for offline use      │
@@ -161,6 +162,20 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   or is in a company, email or phone number). "meet Sam tomorrow 3pm" opens
   New event with `eventSentence` (`openNew`'s `sentence`), so quick-parse.ts
   reads the time and invites them.
+- **History and Recent** (`interactions.rs`, `contacts/history.ts`): a log of
+  `{ contactId, kind, at, detail }` (kinds: call, message, email, facetime,
+  meeting, met, note, added), stamped on the Rust side, at most 5000, in
+  `interactions.json` in the config folder (on the web, KV `interactions`,
+  encrypted). Logged when an action is started from Contacts (not when the
+  call happens: there's no way to know), a meeting saved from "meet…", a
+  note added, a contact added, or by hand ("called Sam about…", **Log…**).
+  Deleting a contact or removing an account drops its entries. Recent is
+  the 6 people with the latest entries; a card's History merges its entries
+  with past events found by `search`, a repeating event once (its latest).
+- **Birthdays → calendar:** clicking one calls `openCalendar(day)`
+  (`contacts/open.ts`): on the desktop `show_main`, then the
+  `calendar-go-to-day` event that main.ts listens for; elsewhere
+  `./?date=YYYY-MM-DD`, read once at start. Either shows Day view.
 - **The card** (`contacts/card.ts`): quick actions open `sms:`, `tel:`,
   `mailto:`, `facetime:` (allowed in `capabilities/default.json`) or a maps
   link; several numbers give a menu. "With Sam" searches the calendars

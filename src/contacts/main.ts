@@ -18,26 +18,32 @@ import {
   deleteContact,
   errorMessage,
   getContacts,
+  getInteractions,
   getSavedContacts,
   isNotSignedIn,
+  logInteraction,
   setContactStarred,
-  showMain,
   signIn,
   updateContact,
   type AgendaItem,
   type Contact,
   type ContactDraft,
   type ContactList,
+  type Interaction,
+  type InteractionKind,
   type Labeled,
 } from "../api";
 import { boot } from "../boot";
 import { ask, openDetails } from "../details";
 import { el, showMenu } from "../dom";
 import { openEdit, openNew } from "../event-form";
+import { openSettings } from "../settings";
 import { announceChange } from "../sync";
 import { timeFormat } from "../time";
 import { avatar, isMac, mapLink, renderCard, type CardActions } from "./card";
 import { openContactForm } from "./form";
+import { openCalendar } from "./open";
+import { describeLatest, historyOf, KIND_WORDS, latestByContact, recentContacts } from "./history";
 import { dialable, displayName, indexLetter, labelText, newValues, upcomingBirthdays, whenBirthday, workLine } from "./model";
 import { eventSentence, interpret, type Action, type Intent, type ParsedContact } from "./parse";
 
@@ -57,6 +63,8 @@ const countLine = document.querySelector<HTMLElement>("#account")!;
 const body = document.body;
 
 let list: ContactList | undefined;
+/** What's logged with people (interactions.rs), oldest first. */
+let log: Interaction[] = [];
 let intent: Intent = { kind: "empty" };
 /** The person whose card is open. */
 let selectedId: string | null = null;
@@ -99,6 +107,13 @@ async function load(): Promise<void> {
     const saved = await getSavedContacts().catch(() => null);
     if (saved && request === latestRequest && !list) show(saved);
   }
+  void getInteractions()
+    .then((entries) => {
+      if (JSON.stringify(entries) === JSON.stringify(log)) return;
+      log = entries;
+      if (list) update();
+    })
+    .catch(() => {});
   try {
     const fresh = await getContacts();
     lastSync = Date.now();
@@ -161,15 +176,9 @@ function showSignedOut(): void {
   const view = el("div", "sign-in");
   view.append(el("p", "sign-in-text", "Sign in to Google in Minuteman to see your contacts here."));
   const open = el("button", "primary-button", "Open Minuteman");
-  open.addEventListener("click", openCalendar);
+  open.addEventListener("click", () => openCalendar());
   view.append(open);
   listBox.replaceChildren(view);
-}
-
-/** Back to the calendar: its window on the desktop, its page elsewhere. */
-function openCalendar(): void {
-  if (isTauri() && !/iPhone|iPad|Android/.test(navigator.userAgent)) void showMain();
-  else location.assign(new URL("./", location.href).toString());
 }
 
 // ---------- Drawing ----------
@@ -192,6 +201,7 @@ function intentContact(i: Intent): Contact | null {
     case "search":
       return i.matches[0] ?? null;
     case "action":
+    case "log":
       return i.contact;
     case "update":
       return i.contact;
@@ -248,6 +258,17 @@ function drawHint(): void {
       else if (action === "event" && rest) detail = eventSentence(contact, rest, new Date());
       else detail = describeTarget(action, contact);
       if (action === "note" && !rest) doable = false;
+      break;
+    }
+    case "log": {
+      const { contact, logKind, rest } = intent;
+      if (!contact) {
+        text = `No one called “${intent.query}”`;
+        doable = false;
+        break;
+      }
+      text = `Log for ${displayName(contact)}: ${KIND_WORDS[logKind]}`;
+      detail = rest ? (logKind === "email" ? `About “${rest}”` : rest) : "Add what it was about, or press Enter";
       break;
     }
     case "add":
@@ -332,6 +353,13 @@ function drawList(): void {
   if (!typed) {
     people = [];
     const today = new Date();
+    const recent = recentContacts(all, log);
+    if (recent.length) {
+      const latest = latestByContact(log);
+      sections.push(heading("Recent"));
+      for (const c of recent) sections.push(row(c, describeLatest(latest.get(c.id)!, today)));
+      people.push(...recent);
+    }
     const birthdays = upcomingBirthdays(all, today, BIRTHDAY_DAYS);
     if (birthdays.length) {
       sections.push(heading("Birthdays"));
@@ -356,7 +384,12 @@ function drawList(): void {
     }
     if (all.length === 0) sections.push(el("p", "empty", "No contacts yet. Type someone’s name and details above to add them."));
   } else {
-    people = intent.kind === "search" || intent.kind === "action" ? intent.matches : intent.kind === "update" ? [intent.contact] : [];
+    people =
+      intent.kind === "search" || intent.kind === "action" || intent.kind === "log"
+        ? intent.matches
+        : intent.kind === "update"
+          ? [intent.contact]
+          : [];
     for (const c of people) sections.push(row(c));
   }
   listed = people;
@@ -408,10 +441,11 @@ function drawCard(): void {
     return;
   }
   // Unchanged (typing more of the same name): leave it, and its events, be.
-  const json = JSON.stringify(contact);
+  const history = historyOf(contact, log);
+  const json = JSON.stringify([contact, history]);
   if (json === shownCard) return;
   const scroll = cardBox.dataset.shown === contact.id ? cardBox.scrollTop : 0;
-  cardBox.replaceChildren(renderCard(contact, cardActions, list?.accounts.length ?? 1));
+  cardBox.replaceChildren(renderCard(contact, cardActions, list?.accounts.length ?? 1, history));
   cardBox.dataset.shown = contact.id;
   cardBox.scrollTop = scroll;
   shownCard = json;
@@ -451,7 +485,21 @@ function choose(values: Labeled[], anchor: HTMLElement, run: (value: Labeled) =>
 /** Messages, calls, emails… someone, or starts a meeting or note with them. */
 function act(action: Action, contact: Contact, anchor: HTMLElement, rest = ""): void {
   if (action === "event") {
-    openNew(() => announceChange(), "event", null, `${eventSentence(contact, rest, new Date())} `);
+    openNew(
+      ({ start, allDay }) => {
+        announceChange();
+        const when = start?.toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          ...(allDay ? {} : { hour: "numeric", minute: "2-digit" }),
+        });
+        record(contact, "meeting", when ? `for ${when}` : null);
+      },
+      "event",
+      null,
+      `${eventSentence(contact, rest, new Date())} `,
+    );
     return;
   }
   if (action === "note") {
@@ -474,7 +522,19 @@ function act(action: Action, contact: Contact, anchor: HTMLElement, rest = ""): 
       map: mapLink(v.value),
     };
     void openUrl(urls[action]);
+    if (action !== "map") record(contact, action, action === "email" ? rest || null : null);
   });
+}
+
+/** Logs something done with someone, and shows it in Recent and their History. */
+function record(contact: Contact, kind: InteractionKind, detail: string | null = null): void {
+  void logInteraction(contact.id, kind, detail)
+    .then((entry) => {
+      log = [...log, entry];
+      drawList();
+      drawCard();
+    })
+    .catch((e) => banner.replaceChildren(el("p", "error", `Couldn't log it: ${errorMessage(e)}`)));
 }
 
 function focusNote(): void {
@@ -502,6 +562,12 @@ async function perform(anchor: HTMLElement): Promise<void> {
       if (current.action !== "event") clearBox();
       return;
     }
+    case "log":
+      if (!current.contact) return;
+      select(current.contact, false);
+      record(current.contact, current.logKind, current.rest || null);
+      clearBox();
+      return;
     case "add":
       await add(current.details);
       return;
@@ -525,7 +591,9 @@ async function add(details: ParsedContact): Promise<void> {
   }
   input.disabled = true;
   try {
-    saved(await createContact(account, draftFrom(details)));
+    const contact = await createContact(account, draftFrom(details));
+    saved(contact);
+    record(contact, "added");
     input.value = "";
   } catch (e) {
     banner.replaceChildren(el("p", "error", `Couldn't add them: ${errorMessage(e)}`));
@@ -573,6 +641,7 @@ async function addDetails(contact: Contact, details: ParsedContact): Promise<voi
   input.disabled = true;
   try {
     saved(await updateContact(contactRef(contact), draft));
+    if (details.notes) record(contact, "note", details.notes);
     input.value = "";
   } catch (e) {
     banner.replaceChildren(el("p", "error", `Couldn't update ${displayName(contact)}: ${errorMessage(e)}`));
@@ -592,6 +661,7 @@ const withNote = (notes: string | null, text: string) => [notes?.trim(), datedNo
 
 async function addNote(contact: Contact, text: string): Promise<void> {
   saved(await updateContact(contactRef(contact), { notes: withNote(contact.notes, text) }));
+  record(contact, "note", text);
 }
 
 /** Puts a just-saved contact in the list (Google can take a moment to list it) and shows them. */
@@ -618,6 +688,7 @@ const cardActions: CardActions = {
     try {
       await deleteContact(contactRef(contact));
       list = { ...list, contacts: list.contacts.filter((c) => c.id !== contact.id) };
+      log = log.filter((e) => e.contactId !== contact.id);
       selectedId = null;
       body.classList.remove("card-open");
       update();
@@ -634,6 +705,17 @@ const cardActions: CardActions = {
   },
   addNote,
   openEvent: (item) => showEvent(item),
+  showDay: (day) => openCalendar(day),
+  logManually: (contact, anchor) => {
+    const rect = anchor.getBoundingClientRect();
+    const kinds: [string, InteractionKind][] = [
+      ["Called", "call"],
+      ["Messaged", "message"],
+      ["Emailed", "email"],
+      ["Met in person", "met"],
+    ];
+    showMenu(rect.left, rect.bottom + 4, kinds.map(([label, kind]) => [label, () => record(contact, kind)]));
+  },
   back: () => {
     body.classList.remove("card-open");
     input.focus();
@@ -657,9 +739,10 @@ function showEvent(item: AgendaItem): void {
 // ---------- Setting up ----------
 
 function setUp(): void {
-  document.querySelector("#calendar")!.addEventListener("click", openCalendar);
+  document.querySelector("#calendar")!.addEventListener("click", () => openCalendar());
   document.querySelector("#refresh")!.addEventListener("click", () => void load());
   document.querySelector("#new-contact")!.addEventListener("click", newContact);
+  document.querySelector("#settings")!.addEventListener("click", showSettings);
   if (!isTauri() || /iPhone|iPad|Android/.test(navigator.userAgent)) {
     document.querySelector<HTMLElement>("#calendar")!.title = "Back to the calendar";
   }
@@ -693,6 +776,9 @@ function setUp(): void {
     } else if (e.key === "/" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
       e.preventDefault();
       input.focus();
+    } else if (e.key === "," && (command || !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement))) {
+      e.preventDefault();
+      showSettings();
     }
   });
 
@@ -710,6 +796,25 @@ function setUp(): void {
   }, SYNC_EVERY_MS);
 }
 
+/**
+ * The calendar's Settings, here too. Changes that affect the calendar are
+ * announced, so its window redraws.
+ */
+function showSettings(): void {
+  openSettings({
+    accountsChanged: (signedIn) => {
+      announceChange();
+      if (!signedIn) return showSignedOut();
+      list = undefined;
+      void load();
+    },
+    todoistChanged: announceChange,
+    daysChanged: announceChange,
+    sourcesChanged: announceChange,
+    weatherChanged: announceChange,
+  });
+}
+
 /** "+": the New contact form, filled in from the box if it reads as someone new. */
 function newContact(): void {
   if (!list) return;
@@ -717,6 +822,7 @@ function newContact(): void {
   openContactForm(null, start, usableAccounts(), (contact) => {
     input.value = "";
     saved(contact);
+    record(contact, "added");
   });
 }
 

@@ -9,6 +9,7 @@ mod contacts;
 mod desktop;
 mod error;
 mod google;
+mod interactions;
 mod prefs;
 mod search;
 mod secrets;
@@ -26,6 +27,7 @@ use tauri::{AppHandle, Manager, State};
 use agenda::Agenda;
 use cache::AgendaCache;
 use contacts::ContactsCache;
+use interactions::{Interaction, Interactions, NewInteraction};
 use error::{AppError, Result};
 use google::auth::GoogleAuth;
 use google::calendar::{EventCalendar, EventDraft, EventTimes};
@@ -63,11 +65,13 @@ async fn remove_google_account(
     state: State<'_, AppState>,
     cache: State<'_, AgendaCache>,
     contacts: State<'_, ContactsCache>,
+    interactions: State<'_, Interactions>,
     email: String,
 ) -> Result<()> {
     state.google_auth.remove_account(&email).await?;
     cache.forget(&email);
     contacts.forget(&email);
+    interactions.forget_account(&email);
     events_changed();
     Ok(())
 }
@@ -308,11 +312,30 @@ async fn update_contact(
 }
 
 #[tauri::command]
-async fn delete_contact(state: State<'_, AppState>, cache: State<'_, ContactsCache>, target: ContactRef) -> Result<()> {
+async fn delete_contact(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    interactions: State<'_, Interactions>,
+    target: ContactRef,
+) -> Result<()> {
     let token = state.google_auth.access_token(&target.email).await?;
     google::contacts::delete_contact(&state.http, &token, &target.resource_name).await?;
-    cache.remove(&format!("{}/{}", target.email, target.resource_name));
+    let id = format!("{}/{}", target.email, target.resource_name);
+    cache.remove(&id);
+    interactions.forget_contact(&id);
     Ok(())
+}
+
+/// Your history with people in Contacts (see interactions.rs), oldest first.
+#[tauri::command]
+fn interactions(interactions: State<'_, Interactions>) -> Vec<Interaction> {
+    interactions.all()
+}
+
+/// Logs a call, message, note… with someone, now; returns it as kept.
+#[tauri::command]
+fn log_interaction(interactions: State<'_, Interactions>, interaction: NewInteraction) -> Result<Interaction> {
+    interactions.log(interaction)
 }
 
 /// Adds a contact to Favorites, or takes it out; returns it as saved.
@@ -628,6 +651,7 @@ pub fn run() {
             let path = app.path().app_cache_dir().ok().map(|dir| dir.join("contacts.json"));
             app.manage(ContactsCache::load(path));
             prefs::init(app.path().app_config_dir().ok().map(|dir| dir.join("preferences.json")));
+            app.manage(Interactions::load(app.path().app_config_dir().ok().map(|dir| dir.join("interactions.json"))));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
             #[cfg(desktop)]
@@ -664,6 +688,8 @@ pub fn run() {
             update_contact,
             delete_contact,
             set_contact_starred,
+            interactions,
+            log_interaction,
             show_contacts,
             todoist_status,
             todoist_connect,

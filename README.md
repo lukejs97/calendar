@@ -69,13 +69,17 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
     **add it to them**;
   - or say what to do: "call Sam", "text Sam", "email Sam about lunch",
     "facetime Sam" (Mac), "map Sam", "note Sam: likes jazz" (a dated note),
-    or "meet Sam tomorrow 3pm" (New event, with them invited).
+    or "meet Sam tomorrow 3pm" (New event, with them invited);
+  - or log what you did: "called Sam about the lease", "met Ana for coffee".
 
   Each card has buttons to message, call, email, FaceTime, meet or map them,
-  their details (click a number to call it, an address to map it), upcoming
-  birthdays (with age), notes, and your **events with them** from a year back
-  to a year ahead. Star someone for Favorites; upcoming birthdays and
-  Favorites sit at the top of the list. In an event's details, click a
+  their details (click a number to call it, an address to map it), birthdays
+  (with age; click one to see that day in the calendar), notes, upcoming
+  events with them, and their **History**: calls, messages, emails and
+  FaceTimes started here, meetings set up, notes, what you log (the card's
+  **Log…**, or the box), and past events with them, latest first. **Recent**
+  (who you were last in touch with), upcoming birthdays and Favorites sit at
+  the top of the list. Settings opens from here too. In an event's details, click a
   guest's name to see them in Contacts (or add them). Contacts need the
   People API and one more permission
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md)); accounts added
@@ -198,6 +202,11 @@ Contacts. How the code is organized:
 - These names (`com.mycalendar.app`, `com.lukesassa.calendar`) are from before
   the app was called Minuteman. They stay as they are on purpose: changing
   them would sign you out and lose saved settings.
+- **Contacts history** (Recent and each card's History): `interactions.json`
+  in the app's config folder (on macOS `~/Library/Application Support/com.lukesassa.calendar`,
+  on Windows `%APPDATA%\com.lukesassa.calendar`); on the website, encrypted
+  on its server. It stays on that device or site, isn't sent to Google, and
+  goes when you delete the contact or remove the account.
 - **Saved events and contacts for offline use:** `agenda.json` and `contacts.json` in the app's cache folder
   (on macOS `~/Library/Caches/com.lukesassa.calendar`, on Windows
   `%LOCALAPPDATA%\com.lukesassa.calendar`). Deleting them is safe; the app just

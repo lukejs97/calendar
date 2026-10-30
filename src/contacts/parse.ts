@@ -7,10 +7,12 @@
 //   something to do   "call Sam", "text Sam", "email Sam about lunch",
 //                     "meet Sam tomorrow 3pm", "note Sam: likes jazz",
 //                     "map Sam", "facetime Sam"
+//   something done    "called Sam about the lease", "met Ana for coffee"
+//                     (logged in their History)
 //
 // Runs locally, as you type; chrono-node finds a meeting's date and time.
 import * as chrono from "chrono-node/en";
-import type { Birthday, Contact, Labeled } from "../api";
+import type { Birthday, Contact, InteractionKind, Labeled } from "../api";
 import { displayName, matchScore, monthNumber, search } from "./model";
 
 export type Action = "call" | "message" | "email" | "facetime" | "event" | "note" | "map";
@@ -36,6 +38,8 @@ export type Intent =
   | { kind: "search"; query: string; matches: Contact[]; add: ParsedContact | null }
   /** Something to do with someone: `contact` is the best match (null if none). */
   | { kind: "action"; action: Action; query: string; contact: Contact | null; matches: Contact[]; rest: string }
+  /** Something done with someone, to log in their History. */
+  | { kind: "log"; logKind: InteractionKind; query: string; contact: Contact | null; matches: Contact[]; rest: string }
   /** A new contact. */
   | { kind: "add"; details: ParsedContact }
   /** More details for someone you have (named in full). */
@@ -49,6 +53,15 @@ const VERBS: [RegExp, Action][] = [
   [/^(?:meet|meeting|schedule|invite)$/i, "event"],
   [/^(?:note|notes)$/i, "note"],
   [/^(?:map|directions|navigate)$/i, "map"],
+];
+
+/** Past tense: something already done, to log. */
+const DONE: [RegExp, InteractionKind][] = [
+  [/^(?:called|phoned|rang)$/i, "call"],
+  [/^(?:texted|messaged)$/i, "message"],
+  [/^(?:emailed|e-mailed|mailed)$/i, "email"],
+  [/^(?:facetimed)$/i, "facetime"],
+  [/^(?:met|saw|visited)$/i, "met"],
 ];
 
 /** Words after the person that only join them to the rest: "email Sam about…". */
@@ -84,11 +97,19 @@ export function interpret(text: string, contacts: Contact[], now: Date): Intent 
   return { kind: "search", query: trimmed, matches, add };
 }
 
-/** "call Sam", "email Sam Lee about lunch"…, or null if it doesn't start with a verb. */
+/**
+ * "call Sam", "email Sam Lee about lunch", "called Sam about the lease"…,
+ * or null if it doesn't start with a verb.
+ */
 function readAction(text: string, contacts: Contact[]): Intent | null {
   const [verb, ...words] = text.split(" ");
   const action = VERBS.find(([pattern]) => pattern.test(verb))?.[1];
-  if (!action || words.length === 0) return null;
+  const done = action ? undefined : DONE.find(([pattern]) => pattern.test(verb))?.[1];
+  if ((!action && !done) || words.length === 0) return null;
+  const intent = (query: string, contact: Contact | null, matches: Contact[], rest: string): Intent =>
+    action
+      ? { kind: "action", action, query, contact, matches, rest }
+      : { kind: "log", logKind: done!, query, contact, matches, rest };
 
   // The longest run of words that names someone ("Sam Lee" before "Sam").
   for (let n = Math.min(MAX_NAME_WORDS, words.length); n >= 1; n--) {
@@ -96,13 +117,15 @@ function readAction(text: string, contacts: Contact[]): Intent | null {
     const matches = search(contacts, query);
     if (matches.length === 0) continue;
     let rest = words.slice(n).join(" ").replace(/^[:,]\s*/, "");
-    const joiner = JOINERS[action];
+    const joiner = action ? JOINERS[action] : LOG_JOINER;
     if (joiner) rest = rest.replace(joiner, "");
-    return { kind: "action", action, query, contact: matches[0], matches, rest };
+    return intent(query, matches[0], matches, rest);
   }
-  const query = words.join(" ");
-  return { kind: "action", action, query, contact: null, matches: [], rest: "" };
+  return intent(words.join(" "), null, [], "");
 }
+
+/** "called Sam about the lease" → "the lease"; "met Ana for coffee" keeps "for coffee". */
+const LOG_JOINER = /^(?:about|re|regarding|:)\s*/i;
 
 // ---------- Details of a new contact ----------
 

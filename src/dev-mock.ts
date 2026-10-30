@@ -2,7 +2,17 @@
 // open http://localhost:1420), where the Rust side isn't available. Only
 // loaded in development, never in the built app.
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Agenda, AgendaItem, Contact, ContactDraft, EventDraft, EventTimes, TaskDraft, TaskDue } from "./api";
+import type {
+  Agenda,
+  AgendaItem,
+  Contact,
+  ContactDraft,
+  EventDraft,
+  EventTimes,
+  Interaction,
+  TaskDraft,
+  TaskDue,
+} from "./api";
 import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
@@ -234,8 +244,22 @@ function contactFrom(base: Contact, draft: ContactDraft): Contact {
   return c;
 }
 
+/** A little history with the sample people, for Recent and their cards. */
+function sampleInteractions(): Interaction[] {
+  const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const id = (name: string) => `preview@example.com/people/c${name}`;
+  return [
+    { contactId: id("samlee"), kind: "met", at: ago(24 * 9), detail: "coffee at Cafe Roma" },
+    { contactId: id("benokafor"), kind: "email", at: ago(24 * 4), detail: "the lease" },
+    { contactId: id("mom"), kind: "call", at: ago(26), detail: null },
+    { contactId: id("samlee"), kind: "call", at: ago(3), detail: null },
+    { contactId: id("samlee"), kind: "note", at: ago(2), detail: "Starting a new job in January" },
+  ];
+}
+
 export function install(): void {
   let contacts = sampleContacts();
+  const interactions = sampleInteractions();
   let accounts = ["preview@example.com"];
   let todoistConnected = true;
   const completedTasks = new Set<string>();
@@ -545,6 +569,14 @@ export function install(): void {
         const { target } = args as { target: { resourceName: string } };
         contacts = contacts.filter((c) => c.resourceName !== target.resourceName);
         return null;
+      }
+      case "interactions":
+        return interactions;
+      case "log_interaction": {
+        const { interaction } = args as { interaction: Omit<Interaction, "at"> };
+        const entry = { ...interaction, at: new Date().toISOString() };
+        interactions.push(entry);
+        return entry;
       }
       case "set_contact_starred": {
         const { target, starred } = args as { target: { resourceName: string }; starred: boolean };

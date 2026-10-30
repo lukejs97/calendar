@@ -3,11 +3,13 @@
 //   accounts            encrypted list of Google accounts and their refresh tokens
 //   todoist             encrypted Todoist API token
 //   hiddenCalendars     encrypted list of Google calendars hidden in Settings
+//   interactions        encrypted history with people in Contacts (calls, notes…)
 //   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
 //   oauth:<state>       a Google sign-in in progress (10 minutes)
 //
 // One person per deployment: the site's owner, who can add several Google
 // accounts. Tokens never leave the server; browsers only get a session cookie.
+import type { Interaction } from "../../src/api";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import type { Env } from "./env";
 
@@ -66,6 +68,16 @@ export async function setCalendarShown(env: Env, email: string, calendarId: stri
   if (ids.size) hidden[email] = [...ids];
   else delete hidden[email];
   await writeEncrypted(env, "hiddenCalendars", Object.keys(hidden).length ? JSON.stringify(hidden) : null);
+}
+
+/** History with people in Contacts, oldest first (see src-tauri/src/interactions.rs). */
+export async function readInteractions(env: Env): Promise<Interaction[]> {
+  const json = await readEncrypted(env, "interactions");
+  return json ? (JSON.parse(json) as Interaction[]) : [];
+}
+
+export async function writeInteractions(env: Env, entries: Interaction[]): Promise<void> {
+  await writeEncrypted(env, "interactions", entries.length ? JSON.stringify(entries) : null);
 }
 
 export const readTodoistToken = (env: Env) => readEncrypted(env, "todoist");

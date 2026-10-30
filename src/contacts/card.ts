@@ -2,9 +2,10 @@
 // FaceTime, meet or find them, everything you know about them, notes, and
 // your events with them from Minuteman.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { errorMessage, search, type AgendaItem, type Contact, type Labeled } from "../api";
+import { errorMessage, search, type AgendaItem, type Contact, type Interaction, type Labeled } from "../api";
 import { el, setItemColor } from "../dom";
 import { describeTimes, itemEnd, itemStart } from "../time";
+import { describeLatest, KIND_WORDS, latestByContact, relativeTime } from "./history";
 import type { Action } from "./parse";
 import {
   daysUntilBirthday,
@@ -13,6 +14,7 @@ import {
   displayName,
   initials,
   labelText,
+  nextBirthday,
   turning,
   whenBirthday,
   workLine,
@@ -28,6 +30,10 @@ export interface CardActions {
   addNote(contact: Contact, text: string): Promise<void>;
   /** Opens one of the events with them. */
   openEvent(item: AgendaItem): void;
+  /** Shows a day in the calendar (their next birthday). */
+  showDay(day: Date): void;
+  /** "Log…": a menu of things you did with them (a call from your phone, a meeting…). */
+  logManually(contact: Contact, anchor: HTMLElement): void;
   /** Narrow windows: back to the list. */
   back(): void;
 }
@@ -104,8 +110,11 @@ const QUICK: { action: Action; label: string; icon: string; has: (c: Contact) =>
 const svg = (paths: string, size = 20) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
-/** Draws `contact`'s card. `accounts`: how many Google accounts there are (to say which it's in). */
-export function renderCard(contact: Contact, actions: CardActions, accounts: number): HTMLElement {
+/**
+ * Draws `contact`'s card. `accounts`: how many Google accounts there are (to
+ * say which it's in). `history`: what's logged with them.
+ */
+export function renderCard(contact: Contact, actions: CardActions, accounts: number, history: Interaction[]): HTMLElement {
   const card = el("article", "contact-card");
   card.setAttribute("aria-label", displayName(contact));
 
@@ -120,6 +129,8 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
   const work = workLine(contact);
   if (work && work !== displayName(contact)) names.append(el("p", "card-sub", work));
   if (accounts > 1) names.append(el("p", "card-account", contact.account));
+  const latest = latestByContact(history).get(contact.id);
+  if (latest) names.append(el("p", "card-account card-latest", `Last: ${describeLatest(latest, new Date())}`));
   const star = el("button", "icon-button card-star", contact.starred ? "★" : "☆");
   star.setAttribute("aria-pressed", String(contact.starred));
   star.title = contact.starred ? "Remove from Favorites" : "Add to Favorites";
@@ -170,14 +181,21 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
     const days = daysUntilBirthday(contact.birthday, today);
     const age = turning(contact.birthday, today);
     const soon = days < 30 ? ` · ${whenBirthday(contact.birthday, today)}${age ? `, turning ${age}` : ""}` : "";
-    const value = el("span", days === 0 ? "card-birthday today" : "card-birthday", `${describeBirthday(contact.birthday)}${soon}`);
+    // Clicking it shows their next birthday in the calendar.
+    const value = linkish(`${describeBirthday(contact.birthday)}${soon}`, () =>
+      actions.showDay(nextBirthday(contact.birthday!, today)),
+    );
+    value.classList.add("card-birthday");
+    if (days === 0) value.classList.add("today");
+    value.title = "Show in the calendar";
     fields.append(field("Birthday", value));
   }
   if (contact.phones.length + contact.emails.length + contact.addresses.length + contact.urls.length === 0 && !contact.birthday) {
     fields.append(el("p", "card-empty", "No phone, email or address yet. Edit to add them."));
   }
 
-  card.append(back, head, quick, fields, notesSection(contact, actions), eventsSection(contact, actions), footer(contact, actions));
+  const notes = notesSection(contact, actions);
+  card.append(back, head, quick, fields, notes, historySection(contact, actions, history), footer(contact, actions));
   return card;
 }
 
@@ -241,21 +259,58 @@ function notesSection(contact: Contact, actions: CardActions): HTMLElement {
   return section;
 }
 
-/** Upcoming and recent events with them, found by their email addresses (or name). */
-function eventsSection(contact: Contact, actions: CardActions): HTMLElement {
+/** Entries in History before "Show all". */
+const HISTORY_SHOWN = 8;
+
+/** A line in History: something logged, or a past event with them. */
+type HistoryLine = { at: Date; entry: Interaction } | { at: Date; event: AgendaItem };
+
+/**
+ * "With Sam": upcoming events with them, then their History: what's logged
+ * (calls, messages, notes…) merged with past events, latest first. Events are
+ * found by their email addresses (or whole name).
+ */
+function historySection(contact: Contact, actions: CardActions, log: Interaction[]): HTMLElement {
   const section = el("section", "card-section card-events");
   const first = contact.givenName || displayName(contact).split(" ")[0];
-  section.append(el("h3", "card-heading", `With ${first}`));
-  const status = el("p", "card-empty", "Looking in your calendars…");
-  section.append(status);
+  const head = el("div", "card-heading-row");
+  const logButton = el("button", "link-button card-mini", "Log…");
+  logButton.type = "button";
+  logButton.title = `Log something you did with ${first}`;
+  logButton.addEventListener("click", () => actions.logManually(contact, logButton));
+  head.append(el("h3", "card-heading", `With ${first}`), logButton);
+  const upcomingBox = el("div");
+  const historyBox = el("div");
+  const status = el("p", "card-empty");
+  section.append(head, upcomingBox, historyBox, status);
+
+  let lines: HistoryLine[] = log.map((entry) => ({ at: new Date(entry.at), entry }));
+  let showAll = false;
+  const drawHistory = () => {
+    lines.sort((a, b) => b.at.getTime() - a.at.getTime());
+    const list = el("ul", "history-list");
+    for (const line of showAll ? lines : lines.slice(0, HISTORY_SHOWN)) list.append(historyLine(line, actions));
+    const parts: HTMLElement[] = [el("h4", "card-subheading", "History"), list];
+    if (!showAll && lines.length > HISTORY_SHOWN) {
+      const more = el("button", "link-button card-mini history-more", `Show all ${lines.length}`);
+      more.type = "button";
+      more.addEventListener("click", () => {
+        showAll = true;
+        drawHistory();
+      });
+      parts.push(more);
+    }
+    historyBox.replaceChildren(...(lines.length ? parts : []));
+    status.textContent = lines.length
+      ? ""
+      : `Nothing yet. Calls, messages and emails you start here, notes, and meetings with ${first} show up here.`;
+  };
+  drawHistory();
 
   const queries = contact.emails.map((e) => e.value);
   // A name alone finds too much unless it's a whole name.
   if (queries.length === 0 && displayName(contact).includes(" ") && contact.name) queries.push(contact.name);
-  if (queries.length === 0) {
-    status.textContent = "Add their email address to see your events with them.";
-    return section;
-  }
+  if (queries.length === 0) return section;
 
   // A moment's wait: while you type, the card can change with each letter.
   const look = () => Promise.all(queries.slice(0, 3).map((q) => search(q)));
@@ -265,20 +320,57 @@ function eventsSection(contact: Contact, actions: CardActions): HTMLElement {
       if (!results) return;
       const seen = new Set<string>();
       const unique = (items: AgendaItem[]) => items.filter((item) => !seen.has(item.id) && seen.add(item.id));
-      const upcoming = unique(results.flatMap((r) => r.upcoming)).sort((a, b) => +itemStart(a) - +itemStart(b));
-      const past = unique(results.flatMap((r) => r.past)).sort((a, b) => +itemStart(b) - +itemStart(a));
-      status.remove();
-      if (upcoming.length === 0 && past.length === 0) {
-        section.append(el("p", "card-empty", "No events with them from a year ago to a year ahead."));
-        return;
-      }
-      if (upcoming.length) section.append(eventList("Upcoming", upcoming.slice(0, 4), actions));
-      if (past.length) section.append(eventList("Recent", past.slice(0, 4), actions));
+      const upcoming = oncePerSeries(unique(results.flatMap((r) => r.upcoming)), 1);
+      const past = oncePerSeries(unique(results.flatMap((r) => r.past)), -1);
+      if (upcoming.length) upcomingBox.replaceChildren(eventList("Upcoming", upcoming.slice(0, 4), actions));
+      lines = [...lines, ...past.map((event) => ({ at: itemStart(event), event }))];
+      drawHistory();
     })
     .catch((e) => {
-      status.textContent = `Couldn't look: ${errorMessage(e)}`;
+      upcomingBox.replaceChildren(el("p", "card-empty", `Couldn't look in your calendars: ${errorMessage(e)}`));
     });
   return section;
+}
+
+/**
+ * A repeating event once, so a daily standup doesn't fill the card: its
+ * soonest occurrence (`order` 1) or latest (-1). Sorted the same way.
+ */
+function oncePerSeries(items: AgendaItem[], order: 1 | -1): AgendaItem[] {
+  const sorted = [...items].sort((a, b) => order * (+itemStart(a) - +itemStart(b)));
+  const seen = new Set<string>();
+  return sorted.filter((item) => {
+    const key = item.seriesId ?? (item.recurring ? `${item.listId}:${item.title}` : item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function historyLine(line: HistoryLine, actions: CardActions): HTMLElement {
+  const li = el("li", "history-line");
+  const now = new Date();
+  if ("event" in line) {
+    const button = el("button", "history-event");
+    button.type = "button";
+    setItemColor(li, line.event); // its dot
+    button.append(
+      el("span", "history-what", line.event.title),
+      el("span", "history-when", `${line.event.recurring ? "Repeating event, last" : "Event"} · ${relativeTime(line.at, now)}`),
+    );
+    button.title = describeTimes(itemStart(line.event), itemEnd(line.event), line.event.allDay);
+    button.addEventListener("click", () => actions.openEvent(line.event));
+    li.append(button);
+    return li;
+  }
+  const { entry } = line;
+  li.classList.add(`history-${entry.kind}`);
+  const what = el("span", "history-what", KIND_WORDS[entry.kind]);
+  if (entry.detail) what.append(el("span", "history-detail", entry.kind === "email" ? ` about “${entry.detail}”` : `: ${entry.detail}`));
+  const when = el("span", "history-when", relativeTime(line.at, now));
+  when.title = line.at.toLocaleString();
+  li.append(what, when);
+  return li;
 }
 
 function eventList(title: string, items: AgendaItem[], actions: CardActions): HTMLElement {
