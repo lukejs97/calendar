@@ -1,8 +1,9 @@
 // The commands the website calls at /api/<name>: the same names and
 // arguments as the desktop app's Rust commands (src-tauri/src/lib.rs), so
 // the shared screens work unchanged.
-import type { EventDraft, EventRef, EventTimes, TaskDraft, TaskDue } from "../../src/api";
+import type { ContactDraft, ContactRef, EventDraft, EventRef, EventTimes, TaskDraft, TaskDue } from "../../src/api";
 import * as agenda from "./agenda";
+import * as contacts from "./contacts";
 import type { Context } from "./env";
 import { configError, invalidInput } from "./errors";
 import * as google from "./google";
@@ -106,6 +107,28 @@ export const commands: Record<string, Command> = {
     const token = await tokenFor(ctx, target.email);
     await google.deleteEvent(token, target.calendarId, target.eventId, flag(args, "notifyGuests"));
     return null;
+  },
+
+  // Contacts
+  async get_contacts(ctx) {
+    return contacts.allContacts(ctx.env);
+  },
+  // Nothing is saved on the server for offline use; the site always fetches.
+  async get_saved_contacts() {
+    return null;
+  },
+  async create_contact(ctx, args) {
+    return contacts.createContact(ctx.env, text(args, "email"), value<ContactDraft>(args, "contact"));
+  },
+  async update_contact(ctx, args) {
+    return contacts.updateContact(ctx.env, value<ContactRef>(args, "target"), value<ContactDraft>(args, "contact"));
+  },
+  async delete_contact(ctx, args) {
+    await contacts.deleteContact(ctx.env, value<ContactRef>(args, "target"));
+    return null;
+  },
+  async set_contact_starred(ctx, args) {
+    return contacts.setStarred(ctx.env, value<ContactRef>(args, "target"), flag(args, "starred"));
   },
 
   // Todoist

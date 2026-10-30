@@ -16,6 +16,8 @@ export interface Account {
   refreshToken: string;
   /** Whether Google granted the permission to change events. */
   canEditEvents: boolean;
+  /** Whether Google granted the permission to use contacts (missing on accounts added before). */
+  canUseContacts?: boolean;
 }
 
 const SESSION_DAYS = 30;

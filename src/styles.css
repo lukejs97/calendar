@@ -1036,6 +1036,20 @@ main.loading > * {
   gap: 8px;
 }
 
+/* A guest's name opens them in Contacts: a link, but in the text's colour. */
+.guest-list .guest-name {
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.guest-list .guest-name:hover {
+  text-decoration-color: currentColor;
+}
+
 .guest-response {
   flex: none;
   font-size: 12px;

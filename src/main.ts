@@ -1,7 +1,6 @@
 // Caslon: the typeface the Declaration of Independence was first printed in.
 import "@fontsource/libre-caslon-text/latin-400.css";
 import "@fontsource/libre-caslon-text/latin-700.css";
-import { isTauri } from "@tauri-apps/api/core";
 import {
   authStatus,
   errorMessage,
@@ -16,6 +15,8 @@ import {
   type Agenda,
   type AgendaItem,
 } from "./api";
+import { boot } from "./boot";
+import { openContacts } from "./contacts/open";
 import { openDetails, showItemMenu } from "./details";
 import { el, setItemMenu } from "./dom";
 import { openEdit, openNew, type At } from "./event-form";
@@ -502,6 +503,7 @@ function openMenu(): void {
     ...VIEW_ORDER.map((name) => menuItem(viewLabel(name), () => switchView(name), name === state.view)),
     el("hr", "menu-line"),
     menuItem("Refresh", () => void load()),
+    menuItem("Contacts", () => openContacts()),
     el("hr", "menu-line"),
     menuItem("Settings…", showSettings),
   );
@@ -545,7 +547,7 @@ function placeArrows(): void {
   place();
 }
 
-/** The phone's ☰ menu: the views, Refresh and Settings. */
+/** The phone's ☰ menu: the views, Refresh, Contacts and Settings. */
 function setUpMenu(): void {
   menuButton.addEventListener("click", () => (menu.hidden ? openMenu() : closeMenu()));
   // A tap anywhere else, or Escape, closes it.
@@ -586,6 +588,7 @@ function setUpControls(): void {
   document.querySelector("#new-event")!.addEventListener("click", () => newEvent());
   document.querySelector("#search")!.addEventListener("click", searchEvents);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
+  document.querySelector("#contacts")!.addEventListener("click", () => openContacts());
   document.querySelector("#dock-new")!.addEventListener("click", () => newEvent());
   document.querySelector("#dock-search")!.addEventListener("click", searchEvents);
   setUpMenu();
@@ -608,6 +611,7 @@ function setUpControls(): void {
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
     else if (key === ",") showSettings();
+    else if (key === "c") openContacts();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;
@@ -677,23 +681,7 @@ function setUpControls(): void {
 }
 
 async function start(): Promise<void> {
-  // In a plain browser there's no Rust side: during `npm run dev`, use sample
-  // data; on the website (web/), send commands to its server.
-  if (!isTauri()) {
-    if (import.meta.env.DEV) (await import("./dev-mock")).install();
-    else (await import("./web-bridge")).install();
-  }
-
-  // In the app, right-clicking where Minuteman has no menu of its own shows
-  // nothing, rather than the web view's (Reload, Inspect…). Text fields and
-  // selected text keep theirs, for copy and paste.
-  if (isTauri()) {
-    document.addEventListener("contextmenu", (e) => {
-      const target = e.target as Element;
-      if (target.closest("input, textarea, [contenteditable]") || getSelection()?.toString()) return;
-      e.preventDefault();
-    });
-  }
+  await boot();
 
   // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
   const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");

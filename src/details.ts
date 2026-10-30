@@ -2,6 +2,7 @@
 // the video call, guests, and notes. Opens on click instead of the browser.
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
+import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
 import { describeTimes, itemEnd, itemStart } from "./time";
 
@@ -186,7 +187,7 @@ async function deleteItem(item: AgendaItem): Promise<boolean> {
  * A small question with a button per answer (plus Cancel). Resolves to the
  * chosen answer's value, or null for Cancel or Escape.
  */
-function ask(question: string, detail: string, answers: [string, string, boolean][]): Promise<string | null> {
+export function ask(question: string, detail: string, answers: [string, string, boolean][]): Promise<string | null> {
   return new Promise((resolve) => {
     const dialog = el("dialog", "dialog");
     document.body.append(dialog);
@@ -246,7 +247,15 @@ function guestList(attendees: Attendee[]): HTMLElement {
     const name = guest.name ?? guest.email ?? "Unknown";
     const notes = [guest.isSelf ? "you" : "", guest.organizer ? "organizer" : ""].filter(Boolean);
     const li = el("li");
-    li.append(el("span", undefined, notes.length ? `${name} (${notes.join(", ")})` : name));
+    const label = notes.length ? `${name} (${notes.join(", ")})` : name;
+    // Someone else's name opens them in Contacts (or offers to add them).
+    const email = guest.email;
+    if (email && !guest.isSelf) {
+      const person = linkButton(label, () => openContacts(email));
+      person.classList.add("guest-name");
+      person.title = `Show ${email} in Contacts`;
+      li.append(person);
+    } else li.append(el("span", undefined, label));
     const response = guest.response ? RESPONSES[guest.response] : undefined;
     if (response) li.append(el("span", `guest-response ${guest.response}`, response));
     list.append(li);

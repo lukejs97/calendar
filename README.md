@@ -57,6 +57,29 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   [Open-Meteo](https://open-meteo.com/), free and without an account.
 - **Search** (magnifier, `/` or Cmd/Ctrl+F): events and tasks from a year back
   to a year ahead.
+- **Contacts**, Minuteman's Cardhop: your Google contacts in a window of their
+  own (the person button, `C`, the menu bar icon's menu, or `⌥⌘K` / Ctrl+Alt+K
+  from any app; on a phone or the website, its own page). One box does
+  everything, and the line under it says what Enter will do:
+  - type a name, company, email or part of a number to **find** someone;
+  - type someone new, like "Jane Doe jane@example.com 555-0100 Designer at
+    Acme birthday March 4", to **add** them (phones, emails, addresses,
+    websites, a nickname in brackets, "note: …" are all picked out);
+  - type someone you have with something new ("Sam Lee mobile 555-0101") to
+    **add it to them**;
+  - or say what to do: "call Sam", "text Sam", "email Sam about lunch",
+    "facetime Sam" (Mac), "map Sam", "note Sam: likes jazz" (a dated note),
+    or "meet Sam tomorrow 3pm" (New event, with them invited).
+
+  Each card has buttons to message, call, email, FaceTime, meet or map them,
+  their details (click a number to call it, an address to map it), upcoming
+  birthdays (with age), notes, and your **events with them** from a year back
+  to a year ahead. Star someone for Favorites; upcoming birthdays and
+  Favorites sit at the top of the list. In an event's details, click a
+  guest's name to see them in Contacts (or add them). Contacts need the
+  People API and one more permission
+  ([docs/google-cloud-setup.md](docs/google-cloud-setup.md)); accounts added
+  earlier get an **Allow…** button.
 - **Menu bar** (notification area on Windows): the Minuteman icon opens a
   small month calendar with the next few days, and **+** to add. `⌥⌘N`
   (Ctrl+Alt+N on Windows) adds an event from any app. Closing the window keeps
@@ -91,7 +114,7 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   appear with a checkbox in every view, overdue ones on today.
 
 **Keyboard:** `D` `X` `W` `M` `Y` `A` switch views (`X` is the multi-day one), `T` jumps to today, `N` adds
-an event or task, `/` searches, `,` opens Settings, `←` `→` go back and forward (or swipe sideways
+an event or task, `/` searches, `C` opens Contacts, `,` opens Settings, `←` `→` go back and forward (or swipe sideways
 with two fingers). Click a date in the week header, month grid or year view to
 open that day.
 
@@ -156,7 +179,8 @@ Build Tools ("Desktop development with C++") and WebView2 (built into Windows
 To work on the UI without the Rust side, run `npm run dev` and open
 <http://localhost:1420> in a browser. It shows sample events (from
 `src/dev-mock.ts`, which isn't in real builds); add `?flyout` to the address
-for the menu bar window. How the code is organized:
+for the menu bar window, or open <http://localhost:1420/contacts.html> for
+Contacts. How the code is organized:
 [docs/architecture.md](docs/architecture.md).
 
 ## Where things are stored
@@ -174,11 +198,11 @@ for the menu bar window. How the code is organized:
 - These names (`com.mycalendar.app`, `com.lukesassa.calendar`) are from before
   the app was called Minuteman. They stay as they are on purpose: changing
   them would sign you out and lose saved settings.
-- **Saved events for offline use:** `agenda.json` in the app's cache folder
+- **Saved events and contacts for offline use:** `agenda.json` and `contacts.json` in the app's cache folder
   (on macOS `~/Library/Caches/com.lukesassa.calendar`, on Windows
-  `%LOCALAPPDATA%\com.lukesassa.calendar`). Deleting it is safe; the app just
+  `%LOCALAPPDATA%\com.lukesassa.calendar`). Deleting them is safe; the app just
   fetches again. Removing an account or disconnecting Todoist deletes its
-  saved items.
+  saved items (and an account's saved contacts).
 
 On macOS, builds that aren't signed with your certificate (including
 `npm run tauri dev`) ask for keychain access again after each rebuild

@@ -87,8 +87,14 @@ export interface At {
   allDay: boolean;
 }
 
-export function openNew(onSaved: (saved: Saved) => void, mode: Mode = "event", at: At | null = null): void {
-  new Form(onSaved, mode, null, at).open();
+/** `sentence`: starts the sentence box with it, e.g. "Meeting with Sam Lee with sam@example.com". */
+export function openNew(
+  onSaved: (saved: Saved) => void,
+  mode: Mode = "event",
+  at: At | null = null,
+  sentence = "",
+): void {
+  new Form(onSaved, mode, null, at, sentence).open();
 }
 
 /** Opens the Edit window for an event or task. */
@@ -197,6 +203,8 @@ class Form {
     private item: AgendaItem | null,
     /** When adding: the day (and time) chosen, if any; a date in the sentence wins. */
     private at: At | null = null,
+    /** When adding: what the sentence box starts with. */
+    private startSentence = "",
   ) {}
 
   open(): void {
@@ -240,6 +248,7 @@ class Form {
     if (!this.item) {
       this.sentence.setAttribute("aria-label", "Describe it in a sentence");
       this.sentence.addEventListener("input", () => this.fromSentence());
+      this.sentence.value = this.startSentence;
       form.append(this.sentence);
     }
     form.append(this.eventFields, this.taskFields, this.error, buttons);
@@ -384,6 +393,8 @@ class Form {
     this.fromSentence();
     this.updateSaveButton();
     (this.item ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
+    // Started with a sentence: carry on typing at its end.
+    if (!this.item) this.sentence.setSelectionRange(this.sentence.value.length, this.sentence.value.length);
   }
 
   private showTimes(): void {

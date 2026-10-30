@@ -36,9 +36,12 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 /// Lets the app add events. Accounts added before the app asked for it don't
 /// have it until they're added again.
 const EVENTS_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events";
+/// Lets the Contacts window read and change your Google Contacts. Accounts
+/// added before it asked for this don't have it until they're added again.
+const CONTACTS_SCOPE: &str = "https://www.googleapis.com/auth/contacts";
 /// Reading the calendar list needs `calendar.readonly`; `calendar.events`
 /// alone only covers events.
-const SCOPES: &[&str] = &["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE];
+const SCOPES: &[&str] = &["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE];
 
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Refresh a little before Google's stated expiry so a request never races it.
@@ -132,6 +135,7 @@ struct AccessToken {
     value: String,
     expires_at: Instant,
     can_edit_events: bool,
+    can_use_contacts: bool,
 }
 
 impl AccessToken {
@@ -140,6 +144,7 @@ impl AccessToken {
             value: tokens.access_token.clone(),
             expires_at: Instant::now() + Duration::from_secs(tokens.expires_in),
             can_edit_events: tokens.scope.split(' ').any(|scope| scope == EVENTS_SCOPE),
+            can_use_contacts: tokens.scope.split(' ').any(|scope| scope == CONTACTS_SCOPE),
         }
     }
 }
@@ -252,6 +257,13 @@ impl GoogleAuth {
         self.access_token(email).await?;
         let cached = self.access_tokens.lock().await;
         Ok(cached.get(email).is_some_and(|token| token.can_edit_events))
+    }
+
+    /// Whether `email`'s account has allowed the app to use its contacts.
+    pub async fn can_use_contacts(&self, email: &str) -> Result<bool> {
+        self.access_token(email).await?;
+        let cached = self.access_tokens.lock().await;
+        Ok(cached.get(email).is_some_and(|token| token.can_use_contacts))
     }
 
     /// Trades a refresh token for a new access token. `None` means Google no

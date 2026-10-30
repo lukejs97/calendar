@@ -29,7 +29,8 @@ const COOKIE = "__Host-minuteman";
 /** Only the app's own files; no outside scripts; links don't reveal the page. */
 const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy":
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+    // Contacts' photos come straight from Google.
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com; " +
     // The weather (src/weather.ts) comes straight from Open-Meteo.
     "connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; " +
     "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",

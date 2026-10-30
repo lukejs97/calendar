@@ -1,7 +1,7 @@
 # Google Cloud Console setup
 
 This is a one-time setup, and it's free. You don't need a billing account: the
-Google Calendar API has no charge, and a personal app stays far below its
+Google Calendar and People APIs have no charge, and a personal app stays far below its
 usage limits.
 
 You'll end up with a **client ID** and a **client secret**. They identify *your
@@ -25,13 +25,16 @@ A *project* is Google Cloud's container for one app's settings and API access.
 3. Name: `Calendar App` (anything works). Location/Organization: leave as is ("No organization" is fine).
 4. Click **Create**, wait a few seconds, then make sure the new project is selected in the picker.
 
-## 2. Enable the Google Calendar API
+## 2. Enable the Google Calendar and People APIs
 
-APIs are switched off by default in a new project.
+APIs are switched off by default in a new project. The People API is Google
+Contacts, for Minuteman's Contacts window.
 
 1. Open <https://console.cloud.google.com/apis/library/calendar-json.googleapis.com>
    (or **APIs & Services → Library**, search for "Google Calendar API").
 2. Check that your project is selected at the top, then click **Enable**.
+3. Do the same for <https://console.cloud.google.com/apis/library/people.googleapis.com>
+   ("Google People API").
 
 ## 3. Configure the OAuth consent screen
 
@@ -50,10 +53,10 @@ console this section is called **Google Auth Platform**.
 4. **Contact information**: your email.
 5. **Finish**: tick the box to agree to the Google API Services User Data Policy, then **Continue** and **Create**.
 
-## 4. Add the Calendar scopes
+## 4. Add the Calendar and Contacts scopes
 
-A *scope* is one specific permission the app asks for. The app asks for two:
-reading your calendars, and adding events to them.
+A *scope* is one specific permission the app asks for. The app asks for three:
+reading your calendars, adding events to them, and using your contacts.
 
 1. In Google Auth Platform, open **Data Access**.
 2. Click **Add or remove scopes**.
@@ -61,11 +64,17 @@ reading your calendars, and adding events to them.
    `https://www.googleapis.com/auth/calendar.readonly` ("See and download any calendar you can access").
 4. Clear the filter, type `calendar.events` and tick
    `https://www.googleapis.com/auth/calendar.events` ("View and edit events on all your calendars").
-5. Click **Update**, then **Save** at the bottom of the page.
+5. Clear the filter, type `auth/contacts` and tick
+   `https://www.googleapis.com/auth/contacts` ("See, edit, download, and permanently delete your contacts").
+6. Click **Update**, then **Save** at the bottom of the page.
 
 Accounts added before the app could create events only gave permission to
 read. To add events to one, add it again (**Settings → Google accounts → Add account**, pick the
 same account) and allow both on Google's page.
+
+The same goes for contacts: accounts added before the Contacts window existed
+didn't allow it. The Contacts window says so, with an **Allow…** button that
+adds the account again; tick the contacts box on Google's page.
 
 ## 5. Create the "Desktop app" OAuth client
 
@@ -164,7 +173,7 @@ says verification is needed, you can ignore it.
    **"Google hasn't verified this app"**. In production, click **Advanced**, then
    **Go to Minuteman (unsafe)** (or whatever app name you set on Branding). In Testing, just click **Continue**. It's your
    own app, so this is expected.
-3. Tick the box to let the app see your calendars, and click **Continue**.
+3. Tick the boxes to let the app see your calendars and contacts, and click **Continue**.
 4. The browser tab says "You're signed in". Close it. The app shows your agenda.
 
 If you signed in while the app was still in **Testing**, add each account again
@@ -179,5 +188,6 @@ there renews it). Otherwise the old token still expires after 7 days.
 | `Error 400: redirect_uri_mismatch` in the browser | The client isn't a **Desktop app** type. Create a new client with the Desktop app type. |
 | `Error 403: access_denied` / "has not completed the Google verification process" | The app is still in **Testing** and your account isn't a test user. Publish it (step 6). |
 | "Google Calendar API has not been used in project … or it is disabled" | Do step 2 in the same project as your client. |
+| "People API has not been used in project … or it is disabled" (in Contacts) | Enable the People API (step 2, item 3) in the same project. |
 | "Your Google session ended" after a week | The token was issued while in Testing. Publish the app, then sign in again. |
 | `invalid_client` | The client ID or secret in `.env` has a typo, or the secret was deleted. |

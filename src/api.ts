@@ -180,6 +180,96 @@ export interface TaskDraft {
   priority: number | null;
 }
 
+/** A value with its label: Google's type ("home", "work", "mobile"…, or your own). */
+export interface Labeled {
+  value: string;
+  label: string | null;
+}
+
+/** A birthday; Google allows one without a year. */
+export interface Birthday {
+  year: number | null;
+  month: number;
+  day: number;
+}
+
+/** One person in a Google account's contacts. Mirrors `Contact` in src-tauri/src/google/contacts.rs. */
+export interface Contact {
+  /** Unique across accounts: "<account>/<resourceName>". */
+  id: string;
+  /** The Google account it's in. */
+  account: string;
+  /** Google's ID for it, "people/c123…". */
+  resourceName: string;
+  /** Google's version of it; saving a change needs the latest. */
+  etag: string | null;
+  /** As Google shows it ("Sam Lee"); empty if it has no name. */
+  name: string;
+  givenName: string | null;
+  familyName: string | null;
+  nickname: string | null;
+  organization: string | null;
+  jobTitle: string | null;
+  emails: Labeled[];
+  phones: Labeled[];
+  addresses: Labeled[];
+  urls: Labeled[];
+  birthday: Birthday | null;
+  notes: string | null;
+  /** A photo's address (not Google's letter picture). */
+  photo: string | null;
+  /** In Favorites. */
+  starred: boolean;
+}
+
+/**
+ * A new contact, or changes to one. Mirrors `ContactDraft` in google/contacts.rs.
+ * When changing one, a field left out stays as it is and an empty one is cleared.
+ * Names go together (give both or neither), as do organization and job title.
+ */
+export interface ContactDraft {
+  givenName?: string;
+  familyName?: string;
+  nickname?: string;
+  organization?: string;
+  jobTitle?: string;
+  emails?: Labeled[];
+  phones?: Labeled[];
+  addresses?: Labeled[];
+  urls?: Labeled[];
+  /** Empty clears the birthday. */
+  birthdays?: Birthday[];
+  notes?: string;
+}
+
+/** Mirrors `ContactList` in src-tauri/src/contacts.rs. */
+export interface ContactList {
+  accounts: {
+    email: string;
+    /** False until an account added before Minuteman used contacts is added again. */
+    canUse: boolean;
+    /** Why its contacts couldn't be loaded, if they couldn't. */
+    error: string | null;
+  }[];
+  /** Sorted by name. */
+  contacts: Contact[];
+  /** Set when there's no internet and these are saved contacts: when they were fetched. */
+  offlineSince: string | null;
+}
+
+/** Which contact, and the version it was read at. */
+export interface ContactRef {
+  email: string;
+  resourceName: string;
+  etag: string | null;
+}
+
+export const contactRef = (contact: Contact): ContactRef => ({
+  email: contact.account,
+  resourceName: contact.resourceName,
+  etag: contact.etag,
+});
+
 /** Shape of every error a command rejects with (see src-tauri/src/error.rs). */
 export interface AppError {
   kind: "notSignedIn" | "config" | "auth" | "input" | "api" | "network" | "keychain" | "io";
@@ -237,6 +327,23 @@ export const setTaskDue = (id: string, due: TaskDue) => invoke<void>("set_task_d
 export const deleteTask = (id: string) => invoke<void>("delete_task", { id });
 export const setTaskCompleted = (id: string, completed: boolean) =>
   invoke<void>("set_task_completed", { id, completed });
+
+/** Every Google account's contacts; without internet, the ones saved last time. */
+export const getContacts = () => invoke<ContactList>("get_contacts");
+/** The contacts saved last time, without the network; null if none. */
+export const getSavedContacts = () => invoke<ContactList | null>("get_saved_contacts");
+/** Adds a contact to `email`'s Google Contacts; resolves to it as saved. */
+export const createContact = (email: string, contact: ContactDraft) =>
+  invoke<Contact>("create_contact", { email, contact });
+/** Saves changes to a contact; resolves to it as saved. */
+export const updateContact = (target: ContactRef, contact: ContactDraft) =>
+  invoke<Contact>("update_contact", { target, contact });
+export const deleteContact = (target: ContactRef) => invoke<void>("delete_contact", { target });
+/** Adds a contact to Favorites, or takes it out; resolves to it as saved. */
+export const setContactStarred = (target: ContactRef, starred: boolean) =>
+  invoke<Contact>("set_contact_starred", { target, starred });
+/** Desktop: opens the Contacts window, showing what matches `query`. */
+export const showContacts = (query: string | null = null) => invoke<void>("show_contacts", { query });
 
 /** Brings up the main window (from the menu bar window). */
 export const showMain = () => invoke<void>("show_main");

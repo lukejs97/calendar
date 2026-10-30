@@ -18,11 +18,11 @@
       </div>
     </header>
     <main>
-      <p class="muted">Last updated October 29, 2026.</p>
+      <p class="muted">Last updated October 30, 2026.</p>
       <p>
         Minuteman is a personal calendar app. This page explains what information it uses, where that
         information is kept, and who it's shared with. In short: your information is used only to show and
-        manage your own calendar and tasks. It isn't sold, used for advertising, or shared with anyone else.
+        manage your own calendar, tasks and contacts. It isn't sold, used for advertising, or shared with anyone else.
       </p>
 
       <h2>Information Minuteman uses</h2>
@@ -32,6 +32,12 @@
           (titles, times, places, descriptions, guests and video-call links) so it can show them, and adds,
           changes or deletes events when you ask it to. It also learns your Google account's email address, to
           tell your accounts apart.
+        </li>
+        <li>
+          <strong>Google Contacts</strong>, with your permission: Minuteman's Contacts window reads your
+          contacts (names, phone numbers, email and postal addresses, companies, birthdays, websites, notes and
+          photos) so it can show and search them, and adds, changes, stars or deletes contacts when you ask it to.
+          To show your events with someone, it searches your calendars for their email address.
         </li>
         <li>
           <strong>Todoist</strong>, if you connect it: your tasks and projects, to show them and to add, change,
@@ -58,14 +64,14 @@
       <ul>
         <li>
           <strong>Desktop app (Mac and Windows):</strong> your sign-ins are kept in your computer's keychain
-          (macOS Keychain or Windows Credential Manager), and a copy of recent events and tasks is saved on your
-          computer so Minuteman works offline. Nothing is sent to any server of Minuteman's; the app talks
+          (macOS Keychain or Windows Credential Manager), and a copy of recent events, tasks and your contacts is
+          saved on your computer so Minuteman works offline. Nothing is sent to any server of Minuteman's; the app talks
           directly to Google, Todoist and, on a Mac, Apple.
         </li>
         <li>
           <strong>Web version:</strong> it runs on Cloudflare. Your Google and Todoist sign-ins are stored there,
-          encrypted, so the site can reach your calendar for you; your browser only gets a sign-in cookie. Events
-          and tasks are fetched when you look at them and aren't stored on the server.
+          encrypted, so the site can reach your calendar for you; your browser only gets a sign-in cookie. Events,
+          tasks and contacts are fetched when you look at them and aren't stored on the server.
         </li>
       </ul>
 
@@ -94,7 +100,7 @@
           <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
         </li>
         <li>
-          The desktop app's saved copy of your events is in its cache folder: on a Mac,
+          The desktop app's saved copy of your events and contacts is in its cache folder: on a Mac,
           <code>~/Library/Caches/com.lukesassa.calendar</code>; on Windows,
           <code>%LOCALAPPDATA%\com.lukesassa.calendar</code>. Delete that folder to remove it.
         </li>

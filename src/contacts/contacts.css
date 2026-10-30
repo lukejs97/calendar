@@ -1,0 +1,519 @@
+/* Minuteman Contacts (contacts.html), on top of styles.css: the same navy
+   header and stripes, then the list beside the open card. */
+
+/* ---------- The box ---------- */
+
+.contacts-bar {
+  flex-wrap: nowrap;
+}
+
+.contacts-input {
+  /* Light on the navy, like the header's other controls. */
+  color: var(--on-chrome);
+  background: rgb(255 255 255 / 0.12);
+  border-color: rgb(255 255 255 / 0.28);
+}
+
+.contacts-input::placeholder {
+  color: var(--on-chrome-muted);
+}
+
+.signed-out .contacts-bar .contacts-input,
+.signed-out .actions {
+  visibility: hidden;
+}
+
+/* Wide windows: title, box and buttons in one row (see .chrome in styles.css). */
+@media (min-width: 900px) {
+  .contacts-chrome .contacts-bar {
+    max-width: 640px;
+  }
+}
+
+/* ---------- List and card side by side ---------- */
+
+main.contacts-main {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  overflow: hidden;
+}
+
+.contacts-list-pane,
+.contacts-card-pane {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.contacts-list-pane {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+/* Narrow windows and phones: the list, or the open card, filling the window. */
+@media (max-width: 700px) {
+  main.contacts-main {
+    grid-template-columns: 1fr;
+  }
+
+  .contacts-list-pane {
+    border-right: none;
+  }
+
+  .contacts-card-pane,
+  .card-open .contacts-list-pane {
+    display: none;
+  }
+
+  .card-open .contacts-card-pane {
+    display: block;
+  }
+}
+
+/* The card's way back to the list, only when they don't fit side by side. */
+.card-back {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .card-back {
+    display: inline-block;
+    margin: 0 0 8px -8px;
+    font-size: 14px;
+  }
+
+  .card-placeholder {
+    display: none;
+  }
+}
+
+/* ---------- What Enter does ---------- */
+
+.hint-row {
+  flex: none;
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hint-row:empty {
+  display: none;
+}
+
+.hint-help {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hint {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 8px;
+  text-align: left;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+}
+
+.hint:disabled {
+  opacity: 1;
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.hint:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg));
+}
+
+.hint-key {
+  grid-row: span 2;
+  align-self: center;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 600 12px/1.6 system-ui, sans-serif;
+  color: var(--accent);
+  background: var(--bg);
+}
+
+.hint-text {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hint:disabled .hint-text {
+  color: var(--muted);
+}
+
+.hint-detail {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- The list ---------- */
+
+.contacts-list {
+  padding: 4px 6px 24px;
+}
+
+.list-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 8px 0 2px;
+  padding: 2px 8px;
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--accent);
+  background: var(--bg);
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  text-align: left;
+  background: transparent;
+}
+
+.contact-row:hover {
+  background: var(--surface);
+}
+
+.contact-row[aria-selected="true"] {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.contact-row[aria-selected="true"] .contact-row-detail {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.contact-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.contact-row-name,
+.contact-row-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.contact-row-name {
+  font-weight: 500;
+}
+
+.contact-row-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.contact-row-star {
+  color: var(--gold);
+}
+
+/* ---------- Pictures ---------- */
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: #fbf8f1;
+  background: var(--avatar, var(--chrome));
+  font-weight: 600;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-small {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.avatar-large {
+  width: 72px;
+  height: 72px;
+  font-family: var(--serif);
+  font-size: 26px;
+  /* A gold ring, like the menu bar icon's. */
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--gold);
+}
+
+/* The flag's colours, and a few beside them. */
+.avatar-color-0 { --avatar: #1b2c4c; }
+.avatar-color-1 { --avatar: #b8323a; }
+.avatar-color-2 { --avatar: #a07a2a; }
+.avatar-color-3 { --avatar: #3d6b8f; }
+.avatar-color-4 { --avatar: #5b4a7a; }
+.avatar-color-5 { --avatar: #3f7a5a; }
+
+/* ---------- The card ---------- */
+
+.contacts-card-pane {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.contact-card {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 24px calc(28px + env(safe-area-inset-bottom));
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.card-names {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-name {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 24px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.card-sub,
+.card-account {
+  margin: 2px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.card-account {
+  font-size: 12px;
+}
+
+.card-star {
+  align-self: flex-start;
+  font-size: 24px;
+  color: var(--gold);
+}
+
+/* Message, Call, Email, FaceTime, Meet, Map. */
+.card-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0 8px;
+}
+
+.quick-action {
+  display: flex;
+  flex: 1 1 64px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 96px;
+  padding: 8px 4px 6px;
+  border: none;
+  border-radius: 10px;
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.quick-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.quick-action:disabled {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.quick-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.card-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 16px;
+  margin-top: 16px;
+}
+
+.card-field {
+  display: contents;
+}
+
+.card-label {
+  padding: 7px 0;
+  font-size: 13px;
+  text-align: right;
+  color: var(--muted);
+}
+
+.card-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.card-field > .card-link,
+.card-field > .card-birthday,
+.card-value {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-link {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.card-link:hover {
+  text-decoration: underline;
+}
+
+.card-address {
+  white-space: pre-line;
+}
+
+.card-mini {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card-birthday.today {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.card-empty {
+  grid-column: 1 / -1;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.card-section {
+  margin-top: 22px;
+}
+
+.card-heading {
+  margin: 0 0 6px;
+  font-family: var(--serif);
+  font-size: 15px;
+}
+
+.card-subheading {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.card-notes-text {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.card-note-input {
+  font-size: 15px;
+}
+
+.card-note-form .error {
+  margin: 6px 0 0;
+}
+
+.card-note-form .error:empty {
+  display: none;
+}
+
+.card-buttons {
+  margin-top: 24px;
+}
+
+/* ---------- The form ---------- */
+
+.labeled-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.labeled-list > .link-button {
+  align-self: flex-start;
+  font-size: 13px;
+}
+
+.labeled-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.labeled-row .labeled-label {
+  flex: 0 0 auto;
+  width: 8.5em;
+}
+
+.labeled-row .labeled-value {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: 16px;
+}
+
+.labeled-remove {
+  flex: none;
+  color: var(--muted);
+}
+
+.birthday-year {
+  max-width: 7em;
+}
+
+@media (max-width: 480px) {
+  .labeled-row .labeled-label {
+    width: 6.5em;
+  }
+
+  .contact-card {
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Esc clears the box; no browser × in it. */
+.contacts-input::-webkit-search-cancel-button {
+  display: none;
+}

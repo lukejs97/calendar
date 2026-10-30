@@ -1,6 +1,6 @@
 //! Desktop only: the menu bar (on Windows, notification area) icon and its
-//! small window, the quick-add keyboard shortcut, and staying open in the
-//! menu bar when the main window is closed.
+//! small window, the Contacts window, the quick-add and contacts keyboard
+//! shortcuts, and staying open in the menu bar when the main window is closed.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +25,10 @@ pub const FLYOUT: &str = "flyout";
 pub const OPENED_AT_LOGIN: &str = "--hidden";
 /// Opens New event from anywhere: ⌥⌘N on a Mac, Ctrl+Alt+N on Windows.
 pub const QUICK_ADD_SHORTCUT: &str = "CommandOrControl+Alt+N";
+/// The Contacts window's label.
+pub const CONTACTS: &str = "contacts";
+/// Opens Contacts from anywhere: ⌥⌘K on a Mac, Ctrl+Alt+K on Windows.
+pub const CONTACTS_SHORTCUT: &str = "CommandOrControl+Alt+K";
 
 /// When the small window last hid itself because you clicked elsewhere.
 static HIDDEN_ON_BLUR: Mutex<Option<Instant>> = Mutex::new(None);
@@ -52,6 +56,14 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     });
     if let Err(e) = registered {
         eprintln!("Couldn't register {QUICK_ADD_SHORTCUT}: {e}");
+    }
+    let registered = app.global_shortcut().on_shortcut(CONTACTS_SHORTCUT, |app, _shortcut, event| {
+        if event.state == ShortcutState::Pressed {
+            show_contacts(app, None);
+        }
+    });
+    if let Err(e) = registered {
+        eprintln!("Couldn't register {CONTACTS_SHORTCUT}: {e}");
     }
 
     // Closing the main window keeps the app (and its alerts) running in the
@@ -109,8 +121,9 @@ fn create_flyout(app: &App) -> tauri::Result<()> {
 fn create_tray(app: &App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Minuteman", true, None::<&str>)?;
     let new = MenuItem::with_id(app, "new", "New Event…", true, Some(QUICK_ADD_SHORTCUT))?;
+    let contacts = MenuItem::with_id(app, "contacts", "Contacts", true, Some(CONTACTS_SHORTCUT))?;
     let quit = MenuItem::with_id(app, "quit", "Quit Minuteman", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &new, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &new, &contacts, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
 
     TrayIconBuilder::with_id(TRAY)
@@ -124,6 +137,7 @@ fn create_tray(app: &App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
             "new" => show_flyout(app, true),
+            "contacts" => show_contacts(app, None),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -254,6 +268,46 @@ fn contains(monitor: &Monitor, unit: f64, at: PhysicalPosition<f64>) -> bool {
     let (x, y) = (origin.x as f64 / unit, origin.y as f64 / unit);
     let (width, height) = (size.width as f64 / unit, size.height as f64 / unit);
     at.x >= x && at.x < x + width && at.y >= y && at.y < y + height
+}
+
+/// Opens the Contacts window (made the first time), in front, with `query`
+/// in its box if given (e.g. a guest's email address to look up).
+pub fn show_contacts(app: &AppHandle, query: Option<&str>) {
+    // From the menu bar window (a guest's name): it goes, like a menu, unless detached.
+    if let Some(flyout) = app.get_webview_window(FLYOUT)
+        && !DETACHED.load(Ordering::Relaxed)
+    {
+        let _ = flyout.hide();
+    }
+    let window = match app.get_webview_window(CONTACTS) {
+        Some(window) => {
+            let _ = window.emit("contacts-shown", query);
+            window
+        }
+        None => {
+            // The query as a JSON string is a safe JavaScript literal.
+            let query = serde_json::to_string(&query).expect("serializable");
+            let built = WebviewWindowBuilder::new(app, CONTACTS, WebviewUrl::App("contacts.html".into()))
+                .title("Minuteman Contacts")
+                .inner_size(860.0, 620.0)
+                .min_inner_size(340.0, 420.0)
+                .initialization_script(format!("window.__MINUTEMAN_CONTACTS_QUERY__ = {query};"))
+                .build();
+            let Ok(window) = built else { return };
+            // Closing it only hides it, so it opens again at once, where it was.
+            let hide = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = hide.hide();
+                }
+            });
+            window
+        }
+    };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
 }
 
 pub fn show_main(app: &AppHandle) {
