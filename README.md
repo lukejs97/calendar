@@ -30,8 +30,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   rent every month on the 1st").
 - **Quick actions:** right-click an event or task (on a phone, press and
   hold it) for Open, Edit, Complete, Open in Google Calendar or Todoist, and
-  Delete. On a phone, press and hold a day's heading, or an empty time, for
-  a new event there.
+  Delete. On a phone, press and hold a day's heading, an empty time, or an
+  hour down the side (for the leftmost day), for a new event there.
 - **Same time in any time zone:** tick it on a timed event and it keeps its
   clock time wherever you are (a 9 AM medicine reminder stays 9 AM when you
   travel), while other events move to show the same moment in your new time

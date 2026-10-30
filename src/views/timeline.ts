@@ -512,7 +512,8 @@ export function renderTimeline(
   const sliding = days.length > visible;
   if (sliding) scroller.classList.add("sliding");
   const top = el("div", "tl-top");
-  top.append(headerRow(ctx, days), allDayRow(ctx, days));
+  const allDay = allDayRow(ctx, days);
+  top.append(headerRow(ctx, days), allDay);
   const grid = el("div", "tl-row tl-grid");
   const hours = el("div", "tl-gutter tl-hours");
   for (let h = 1; h < 24; h++) {
@@ -525,7 +526,12 @@ export function renderTimeline(
   timeline.append(scroller);
 
   const previousScroll = ctx.preserveScroll ? root.querySelector(".tl-scroll")?.scrollTop : undefined;
+  // How far the all-day row was scrolled, to keep it there (after a delete, say).
+  const previousAllDay = ctx.preserveScroll
+    ? -parseFloat(root.querySelector<HTMLElement>(".tl-allday")?.style.getPropertyValue("--all-day-offset") || "0")
+    : 0;
   root.replaceChildren(timeline);
+  if (previousAllDay > 0) allDayScrollers.get(allDay)?.(previousAllDay);
 
   // Columns are a seventh (or all) of the width beside the hours.
   let first = Math.min(Math.max(0, daysBetween(days[0], ctx.anchor)), days.length - visible);
@@ -538,6 +544,15 @@ export function renderTimeline(
     scroller.scrollLeft = first * column;
   };
   size();
+  // The hours down the side: like an empty spot, at the leftmost day on
+  // screen (double-click, right-click, or press and hold).
+  enableCreate(hours, ctx, (e) => {
+    const y = e.clientY - hours.getBoundingClientRect().top;
+    const minutes = Math.floor(((y / hourHeight) * 60) / SNAP_MINUTES) * SNAP_MINUTES;
+    const clamped = Math.min(Math.max(minutes, 0), 24 * 60 - SNAP_MINUTES);
+    const day = days[first];
+    return { start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, clamped), allDay: false };
+  });
   // A bigger or smaller window: fit the hours to it again (once it's done
   // changing). Zoomed yourself, they're at least made tall enough to fill it.
   let refit: number | undefined;

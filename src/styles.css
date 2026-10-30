@@ -109,6 +109,11 @@ button:disabled {
   display: none !important;
 }
 
+/* No double-tap to zoom the page: it's an app, not a document. */
+html {
+  touch-action: manipulation;
+}
+
 /* Pressing and holding on the calendar (a finger) is ours: no text
    selection or the system's callout menu. */
 #app {
