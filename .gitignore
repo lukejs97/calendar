@@ -31,3 +31,4 @@ src-tauri/.env
 
 # Personal Claude Code settings (e.g. rules keeping secrets files unreadable)
 .claude/settings.local.json
+/shots/
