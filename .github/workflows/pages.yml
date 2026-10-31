@@ -3,17 +3,30 @@
 # https://lukejs97.github.io/minuteman/
 #
 # One-time setup: Settings → Pages → Build and deployment → Source:
-# "GitHub Actions". Then run this from the Actions tab.
+# "GitHub Actions". Then it runs on every push to main that changes the
+# site, the README, or the logos in public/, and from the Actions tab.
 name: Publish website
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "README.md"
+      - "public/**"
+      - ".github/workflows/pages.yml"
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# One Pages deployment at a time. An in-progress deploy is not cancelled:
+# aborting actions/deploy-pages can leave that deployment stuck, and later
+# pushes then fail until it is cleared. A newer push still replaces a run
+# that is only waiting, so two publishes never run together. This group is
+# separate from deploy-web.yml, which uploads a Cloudflare Worker.
 concurrency:
   group: pages
   cancel-in-progress: false

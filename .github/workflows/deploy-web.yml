@@ -1,7 +1,9 @@
 # Puts the website version (web/) online on Cloudflare Workers, as
 # `npm run deploy` in web/ does on your own computer.
 #
-# Run it from the repo's Actions tab ("Deploy web app" → "Run workflow").
+# Runs on every push to main that can change the Worker or the UI it serves
+# (docs, the README, site/, and the desktop Rust app are skipped), and from
+# the repo's Actions tab ("Deploy web app" → "Run workflow").
 #
 # Needs a repository secret (Settings → Secrets and variables → Actions):
 # CLOUDFLARE_API_TOKEN, made in Cloudflare → My Profile → API Tokens → Create
@@ -14,14 +16,28 @@ name: Deploy web app
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      # The Worker deploy builds the shared UI (repo root) and web/.
+      # Docs, the GitHub Pages site, and the desktop Rust app are not in it.
+      - "**.md"
+      - "docs/**"
+      - "site/**"
+      - "src-tauri/**"
+      - ".vscode/**"
+      - ".github/workflows/build-macos.yml"
+      - ".github/workflows/build-windows.yml"
+      - ".github/workflows/pages.yml"
 
 permissions:
   contents: read
 
-# One deploy at a time; a newer one replaces one still waiting.
+# Cloudflare Worker, not GitHub Pages. A newer push cancels an in-progress
+# deploy of this workflow so two uploads are not in flight together.
 concurrency:
   group: deploy-web
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
