@@ -62,6 +62,16 @@ export interface AgendaItem {
    */
   alertAt?: string[];
   /**
+   * This event's own starting address, when it shouldn't use the one in
+   * Settings. Empty means that default.
+   */
+  leaveFrom?: string | null;
+  /**
+   * Minutes before the leave-by time to alert. Minuteman stores and fires
+   * these; the time depends on traffic, so Google Calendar can't.
+   */
+  leaveAlerts?: number[];
+  /**
    * Keeps its clock time in any time zone (an event marked so here, or
    * Apple's floating events): its times are that clock time here.
    */
@@ -130,7 +140,9 @@ export type AlertMethod = "popup" | "email";
  */
 export type EventAlert =
   | { kind: "relative"; minutes: number; method?: AlertMethod }
-  | { kind: "absolute"; at: string };
+  | { kind: "absolute"; at: string }
+  /** Minutes before you need to leave. Traffic decides the clock time. */
+  | { kind: "leave"; bufferMinutes: number };
 
 /**
  * An event's alerts: its calendar's defaults, or its own list (empty for none).
@@ -151,6 +163,11 @@ export interface EventDraft extends EventTimes {
   alerts: Alerts | null;
   /** Null leaves an existing event's guests as they are. `response` keeps someone's reply. */
   guests: { email: string; response: string | null }[] | null;
+  /**
+   * Starting address for the drive. Null leaves an existing one as it is.
+   * "" clears it (use the address in Settings).
+   */
+  leaveFrom?: string | null;
 }
 
 /** Which Google event. For a repeating event, use `seriesId` to mean every occurrence. */
@@ -395,11 +412,47 @@ export const setFlyoutDetached = (detached: boolean) => invoke<void>("set_flyout
 export interface Preferences {
   menuBarNext: boolean;
   timeToLeave: boolean;
+  /** Default starting address for leave-by times. Empty means none. */
+  leaveFrom: string;
   appleCalendar: boolean;
   appleReminders: boolean;
   /** Apple calendars and reminder lists shown or left out, where chosen. */
   appleCalendarsShown: Record<string, boolean>;
 }
+
+/** One event to estimate a drive for. Mirrors `LeaveQuery` in lib.rs. */
+export interface LeaveQuery {
+  id: string;
+  start: string;
+  location: string;
+  leaveFrom: string | null;
+}
+
+/** Why a leave-by time isn't shown. `ok` is the one that has a time. */
+export type LeaveStatus = "ok" | "noKey" | "noOrigin" | "notPhysical" | "tooFar" | "past" | "unavailable";
+
+/** A drive to one event. Mirrors `LeaveEstimate` in lib.rs. */
+export interface LeaveEstimate {
+  id: string;
+  start: string;
+  /** Driving minutes, when known. */
+  minutes: number | null;
+  /** When to set off to arrive as the event starts (ISO), when known. */
+  leaveAt: string | null;
+  status: LeaveStatus;
+}
+
+/** Where a Routes API key was found. The key itself never comes back. */
+export interface RoutesKeyStatus {
+  configured: boolean;
+  source: "none" | "environment" | "dotenv" | "settings";
+}
+
+/** Drives for these events. A missing key or address is a status, not an error. */
+export const leaveTimes = (events: LeaveQuery[]) => invoke<LeaveEstimate[]>("leave_times", { events });
+export const routesKeyStatus = () => invoke<RoutesKeyStatus>("routes_key_status");
+/** Saves a Routes API key, or clears the saved one when `key` is empty. */
+export const setRoutesKey = (key: string) => invoke<void>("set_routes_key", { key });
 
 /** Whether macOS lets Minuteman use something (calendars, location). */
 export type Access = "notAsked" | "granted" | "denied";

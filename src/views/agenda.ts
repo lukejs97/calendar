@@ -1,6 +1,7 @@
 // Agenda: a list of days with their items, like the original Phase 1 screen.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { leaveLabel } from "../leave";
 import { weatherBadge, weatherOn } from "../weather";
 import {
   addDays,
@@ -76,6 +77,8 @@ function renderItem(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement 
   body.append(el("div", "item-title", item.title));
   const meta = [item.location, item.listName].filter(Boolean).join(" · ");
   body.append(el("div", "item-meta", meta));
+  const leave = leaveLabel(item, "item-leave");
+  if (leave) body.append(leave);
 
   // Events get a color bar; tasks get a checkbox in the same spot.
   if (item.kind === "event") li.append(el("span", "item-bar"));

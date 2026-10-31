@@ -161,6 +161,8 @@ mod tests {
             alert_at: Vec::new(),
             floating: false,
             time_zone: None,
+            leave_from: None,
+            leave_alerts: Vec::new(),
         }
     }
 

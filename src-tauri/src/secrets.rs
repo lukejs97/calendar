@@ -20,6 +20,8 @@ pub const GOOGLE_ACCOUNTS: &str = "google-accounts";
 /// supported several. Moved into `GOOGLE_ACCOUNTS` on first use.
 pub const LEGACY_GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
 pub const TODOIST_TOKEN: &str = "todoist-token";
+/// Google Routes API key for traffic-aware leave-by times. Not the OAuth client.
+pub const ROUTES_API_KEY: &str = "routes-api-key";
 
 #[cfg(not(target_os = "macos"))]
 pub fn get(key: &str) -> Result<Option<String>> {

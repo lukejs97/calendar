@@ -225,4 +225,27 @@ export const commands: Record<string, Command> = {
   async show_main() {
     return null;
   },
+
+  // Leave-by times are worked out in the app (the shared Rust core). The
+  // website keeps the address and the alert on the event, and doesn't call
+  // Routes itself, so a missing key is the answer here.
+  async leave_times(_ctx, args) {
+    const events = args.events;
+    if (!Array.isArray(events)) throw invalidInput("events must be a list");
+    return events.slice(0, 40).map((event) => {
+      const row = event as { id?: unknown; start?: unknown; location?: unknown };
+      const id = typeof row.id === "string" ? row.id : "";
+      const start = typeof row.start === "string" ? row.start : "";
+      const location = typeof row.location === "string" ? row.location : "";
+      const virtual =
+        !location.trim() || /:\/\/|zoom|meet\.google|teams|webex|facetime|online|virtual|\bphone\b|\bcall\b/i.test(location);
+      return { id, start, minutes: null, leaveAt: null, status: virtual ? "notPhysical" : "noKey" };
+    });
+  },
+  async routes_key_status() {
+    return { configured: false, source: "none" };
+  },
+  async set_routes_key() {
+    throw invalidInput("A Routes API key is set in the app, not on the website");
+  },
 };

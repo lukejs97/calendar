@@ -8,6 +8,7 @@
 // it gets near either end.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { leaveLabel } from "../leave";
 import { weatherBadge, weatherOn } from "../weather";
 import {
   hourHeight as savedHourHeight,
@@ -307,16 +308,23 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
   block.style.width = `calc((100% - ${inset}px) / ${seg.columns} - 2px)`;
 
   const start = timeFormat.format(itemStart(item));
+  const leave = leaveLabel(item, "tl-event-leave");
   if (height < 34) {
-    // Too short for two lines: "9:30 AM Standup".
+    // Too short for two lines: "9:30 AM Standup", and the leave-by time if it fits.
     block.classList.add("compact");
     block.append(el("span", "tl-event-time", start), " ", el("span", "tl-event-title", item.title));
+    if (leave) block.append(" · ", leave);
   } else {
     // Tasks often have a due time but no duration: show just the time.
     const range = seg.end > seg.start ? `${start} – ${timeFormat.format(itemEnd(item))}` : start;
-    block.append(el("div", "tl-event-title", item.title), el("div", "tl-event-time", range));
-    // From an hour long (at the usual size) there's room for the place too.
-    if (item.location && height >= 44) block.append(el("div", "tl-event-time tl-event-place", item.location));
+    const time = el("div", "tl-event-time", range);
+    block.append(el("div", "tl-event-title", item.title), time);
+    // A short block keeps "Leave by" on the time line. A taller one gives it a line of its own.
+    if (leave && height < 64) time.append(" · ", leave);
+    if (leave && height >= 64) block.append(leave);
+    if (item.location && height >= (leave && height >= 64 ? 84 : 48)) {
+      block.append(el("div", "tl-event-time tl-event-place", item.location));
+    }
   }
   decorateTask(block, item, ctx.toggleTask);
   makeOpenable(block, item, ctx.openItem);

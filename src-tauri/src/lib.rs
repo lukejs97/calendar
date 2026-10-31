@@ -10,6 +10,7 @@ mod desktop;
 mod error;
 mod google;
 mod interactions;
+mod leave;
 mod prefs;
 mod search;
 mod secrets;
@@ -408,10 +409,11 @@ fn set_preferences(app: AppHandle, cache: State<'_, AgendaCache>, preferences: p
     if !preferences.apple_calendar && !preferences.apple_reminders {
         cache.forget("apple");
     }
-    // Follow the Mac's location only while time-to-leave alerts are on.
+    // Follow the Mac's location only while time-to-leave has no address to
+    // start from. An address is a Routes lookup, not a GPS one.
     #[cfg(target_os = "macos")]
-    if preferences.time_to_leave != prefs::get().time_to_leave {
-        if preferences.time_to_leave { travel::start(&app) } else { travel::stop(&app) }
+    if preferences.uses_device_location() != prefs::get().uses_device_location() {
+        if preferences.uses_device_location() { travel::start(&app) } else { travel::stop(&app) }
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;
@@ -512,6 +514,108 @@ async fn current_location(app: AppHandle) -> Option<serde_json::Value> {
         let _ = app;
         None
     }
+}
+
+/// Where a drive to an event starts from, and how long it takes in traffic.
+/// One answer per event. Missing a key, an address, or a place comes back as
+/// a status rather than an error, so the calendar still draws.
+#[tauri::command]
+async fn leave_times(app: AppHandle, state: State<'_, AppState>, events: Vec<LeaveQuery>) -> Result<Vec<LeaveEstimate>> {
+    use chrono::{DateTime, Utc};
+    use futures::StreamExt;
+
+    let http = state.http.clone();
+    let settings = prefs::get();
+    let has_key = leave::api_key().is_some();
+    let allow_device = settings.uses_device_location();
+    let default_from = settings.leave_from.clone();
+    let queries = events.into_iter().take(40).map(|event| {
+        let http = http.clone();
+        let app = app.clone();
+        let default_from = default_from.clone();
+        async move {
+            let origin = leave::resolve_origin(event.leave_from.as_deref(), &default_from);
+            let answer = match DateTime::parse_from_rfc3339(&event.start) {
+                Ok(start) => {
+                    let place = event.location.clone();
+                    let arrive = start.with_timezone(&Utc);
+                    leave::resolve(
+                        &http,
+                        &event.location,
+                        arrive,
+                        Utc::now(),
+                        origin.as_deref(),
+                        has_key,
+                        allow_device,
+                        || device_drive(&app, &place, start.with_timezone(&chrono::Local)),
+                    )
+                    .await
+                }
+                Err(_) => {
+                    leave::TravelAnswer { minutes: None, leave_at: None, status: leave::TravelStatus::Unavailable }
+                }
+            };
+            LeaveEstimate {
+                id: event.id,
+                start: event.start,
+                minutes: answer.minutes,
+                leave_at: answer.leave_at,
+                status: answer.status,
+            }
+        }
+    });
+    Ok(futures::stream::iter(queries).buffer_unordered(4).collect().await)
+}
+
+/// Apple Maps from the Mac's location, for the time-to-leave switch when no
+/// address is set. Elsewhere this is unused (`allow_device` is false).
+pub(crate) async fn device_drive(app: &AppHandle, place: &str, arrive: chrono::DateTime<chrono::Local>) -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        travel::start(app);
+        return travel::driving_minutes(app, place.to_string(), arrive).await;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, place, arrive);
+        None
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LeaveQuery {
+    id: String,
+    start: String,
+    location: String,
+    #[serde(default)]
+    leave_from: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LeaveEstimate {
+    id: String,
+    start: String,
+    minutes: Option<u32>,
+    leave_at: Option<String>,
+    status: leave::TravelStatus,
+}
+
+/// Whether a Routes API key is available, and where it came from. The key
+/// itself never leaves this side.
+#[tauri::command]
+fn routes_key_status() -> leave::RoutesKeyStatus {
+    leave::key_status()
+}
+
+/// Saves a Routes API key in the keychain, or clears it when `key` is empty.
+/// A key in the environment still wins over this one.
+#[tauri::command]
+fn set_routes_key(key: String) -> Result<()> {
+    leave::set_api_key(&key)?;
+    events_changed();
+    Ok(())
 }
 
 /// Mac only: whether Minuteman may use the Mac's location, for time-to-leave
@@ -660,7 +764,7 @@ pub fn run() {
                 alerts::start(app.handle().clone());
             }
             #[cfg(target_os = "macos")]
-            if prefs::get().time_to_leave {
+            if prefs::get().uses_device_location() {
                 travel::start(app.handle());
             }
             Ok(())
@@ -709,6 +813,9 @@ pub fn run() {
             apple_calendars,
             location_access,
             current_location,
+            leave_times,
+            routes_key_status,
+            set_routes_key,
             open_at_login,
             set_open_at_login,
         ])

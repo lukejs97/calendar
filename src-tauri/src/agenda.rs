@@ -118,6 +118,15 @@ pub struct AgendaItem {
     /// Google events: the event's own time zone (IANA name).
     #[serde(default)]
     pub time_zone: Option<String>,
+    /// This event's own starting address, when it shouldn't use the one in
+    /// Settings. Empty means that default.
+    #[serde(default)]
+    pub leave_from: Option<String>,
+    /// Minutes before the leave-by time to alert. Empty means none. Not a
+    /// Google reminder: Minuteman stores these on the event and fires them
+    /// (see `LOCAL_ALERTS` in google/calendar.rs).
+    #[serde(default)]
+    pub leave_alerts: Vec<u32>,
 }
 
 #[derive(Serialize)]

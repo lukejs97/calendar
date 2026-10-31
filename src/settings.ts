@@ -12,7 +12,9 @@ import {
   openAtLogin,
   setOpenAtLogin,
   locationAccess,
+  routesKeyStatus,
   setPreferences,
+  setRoutesKey,
   type Access,
   type AppleStatus,
   type Preferences,
@@ -24,6 +26,7 @@ import {
   todoistStatus,
 } from "./api";
 import { el } from "./dom";
+import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
 import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
@@ -126,6 +129,10 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
   }
 
+  // Leave-by: an address and a Routes key. The desktop app, a phone build, and
+  // `npm run dev`. (The website doesn't keep these.)
+  if (isTauri() || import.meta.env.DEV) void addTravelRow(rows, openScreen);
+
   // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
   // (To preview them in a browser during `npm run dev`, add ?desktop.)
   const desktopPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("desktop");
@@ -188,8 +195,9 @@ async function addDesktopRows(
   );
   if (!isMac()) return;
 
-  // Time to leave: needs the Mac's location.
-  const leaveNote = el("span", "settings-note", "Alerts with Apple Maps driving time");
+  // Time to leave: events that don't set their own leave alert. An address
+  // uses Routes; with none, the Mac's location and Apple Maps, as before.
+  const leaveNote = el("span", "settings-note", "Also alert when it's time to leave");
   const showLocation = (access: Access | null) => {
     if (access === "denied") leaveNote.textContent = "Allow location in System Settings → Privacy & Security";
   };
@@ -235,6 +243,123 @@ async function addDesktopRows(
   const chooseRow = el("div", "settings-row settings-sub");
   chooseRow.append(choose);
   rows.append(chooseRow);
+}
+
+/** Leave-from address and the Routes API key. */
+async function addTravelRow(rows: HTMLElement, openScreen: (open: (back: () => void) => unknown) => void): Promise<void> {
+  let prefs: Preferences;
+  try {
+    prefs = await getPreferences();
+  } catch {
+    return;
+  }
+  const note = el("span", "settings-note", prefs.leaveFrom.trim() || "Not set");
+  const button = el("button", "pill-button", prefs.leaveFrom.trim() ? "Change…" : "Set up…");
+  button.addEventListener("click", () => {
+    openScreen((back) => openTravelSettings(back, (address) => {
+      note.textContent = address || "Not set";
+      button.textContent = address ? "Change…" : "Set up…";
+    }));
+  });
+  rows.append(settingsRow("Leave from", note, button));
+}
+
+/** The default starting address, and the key used to ask Google for traffic. */
+function openTravelSettings(back: (() => void) | undefined, onAddress: (address: string) => void): void {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "travel-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  const title = el("h2", undefined, "Leave from");
+  title.id = "travel-title";
+  const help = el(
+    "p",
+    undefined,
+    "Events with a place show when to leave, from this address, using live traffic. An event can start somewhere else. The key is a Google Routes API key (Cloud Console → enable Routes API → Credentials → Create API key). It can also be the MINUTEMAN_ROUTES_API_KEY environment variable. It isn't saved in the app itself.",
+  );
+  const address = el("input", "text-input");
+  address.type = "text";
+  address.placeholder = "123 Main St, Springfield";
+  address.setAttribute("aria-label", "Leave from address");
+  address.autocomplete = "street-address";
+  const key = el("input", "text-input");
+  key.type = "password";
+  key.placeholder = "API key";
+  key.setAttribute("aria-label", "Routes API key");
+  key.autocomplete = "off";
+  const status = el("p", "settings-note", "…");
+  const error = el("p", "error");
+  const form = el("form");
+  form.append(el("label", "field-label", "Address"), address, el("label", "field-label", "Routes API key"), key, status, error);
+  const save = el("button", "primary-button", "Save");
+  save.type = "submit";
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.textContent = "";
+    save.disabled = true;
+    try {
+      const prefs = await getPreferences();
+      const leaveFrom = address.value.trim().slice(0, 300);
+      await setPreferences({ ...prefs, leaveFrom });
+      // Blank keeps a key that's already saved. Remove clears it.
+      if (key.value.trim()) await setRoutesKey(key.value.trim());
+      onAddress(leaveFrom);
+      refreshLeaveTimes();
+      dialog.close();
+    } catch (err) {
+      error.textContent = errorMessage(err);
+      save.disabled = false;
+    }
+  });
+  const remove = el("button", "text-button danger", "Remove key");
+  remove.type = "button";
+  remove.hidden = true;
+  remove.addEventListener("click", async () => {
+    error.textContent = "";
+    try {
+      await setRoutesKey("");
+      remove.hidden = true;
+      status.textContent = "Key removed. Leave-by times need a Routes API key.";
+      key.value = "";
+      refreshLeaveTimes();
+    } catch (err) {
+      error.textContent = errorMessage(err);
+    }
+  });
+  const close = el("button", "text-button", "Cancel");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  form.append(buttonRow(remove, close, save));
+  dialog.append(...backTo(dialog, back), title, help, form);
+  dialog.showModal();
+  address.focus();
+
+  void (async () => {
+    const [prefs, keyState] = await Promise.all([
+      getPreferences().catch(() => null),
+      routesKeyStatus().catch(() => null),
+    ]);
+    if (!address.isConnected) return;
+    if (prefs) address.value = prefs.leaveFrom ?? "";
+    if (!keyState) {
+      status.textContent = "";
+      return;
+    }
+    if (keyState.source === "environment") {
+      status.textContent = "Using MINUTEMAN_ROUTES_API_KEY from the environment. A key saved here isn't used while that's set.";
+    } else if (keyState.source === "dotenv") {
+      status.textContent = "Using MINUTEMAN_ROUTES_API_KEY from .env (development). A key saved here is used instead once you save one.";
+    } else if (keyState.configured) {
+      status.textContent = "A key is saved. Leave this blank to keep it, or enter a new one.";
+      key.placeholder = "Saved";
+      remove.hidden = false;
+    } else {
+      status.textContent = "No key yet. Without one, leave-by times stay hidden.";
+    }
+  })();
 }
 
 /** A switch (checkbox) that runs `changed` when flipped. */

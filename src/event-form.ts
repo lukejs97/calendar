@@ -151,6 +151,8 @@ class Form {
   private endDate = input("date");
   private endTime = input("time");
   private location = input("text", "Place or video link");
+  /** Where this event's drive starts, when it isn't the address in Settings. */
+  private leaveFrom = input("text", "Settings default");
   private repeat = select(REPEAT_OPTIONS);
   /** For one event in a repeating series: change just it, or all of them. */
   private scope = select([
@@ -289,6 +291,8 @@ class Form {
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
     this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
     this.row(grid, "Where", this.location);
+    const leaveHint = el("div", "form-notes", "Where you start from, if it isn't the address in Settings.");
+    this.row(grid, "Leave from", this.leaveFrom, leaveHint);
     this.row(grid, "Repeat", this.repeat);
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
@@ -301,6 +305,7 @@ class Form {
     this.track("when", this.allDay, this.startDate, this.startTime, this.endDate, this.endTime);
     this.track("floating", this.floating);
     this.track("location", this.location);
+    this.track("leaveFrom", this.leaveFrom);
     this.track("repeat", this.repeat);
     this.track("guests", this.guests);
     this.track("notes", this.eventNotes);
@@ -473,6 +478,7 @@ class Form {
     this.setWhen(itemStart(item), itemEnd(item), item.allDay);
     this.floating.checked = Boolean(item.floating);
     this.location.value = item.location ?? "";
+    this.leaveFrom.value = item.leaveFrom ?? "";
     this.eventNotes.value = plainText(item.description);
     this.guests.value = item.attendees
       .filter((a) => !a.isSelf && !a.organizer && a.email)
@@ -693,6 +699,8 @@ class Form {
       timeZone: zone ?? localTimeZone(),
       floating: allDay ? null : item ? (editing("floating") ? this.floating.checked : null) : this.floating.checked || null,
       location: this.location.value.trim() || null,
+      // Empty clears an address saved earlier, so the Settings one is used.
+      leaveFrom: this.leaveFrom.value.trim(),
       // Untouched notes are sent back exactly as they were, formatting and all.
       description: editing("notes") ? this.eventNotes.value.trim() || null : (item?.description ?? null),
       recurrence,

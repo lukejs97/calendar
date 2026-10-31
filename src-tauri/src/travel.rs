@@ -1,5 +1,7 @@
-//! Mac only: driving times for "time to leave" alerts, from the Mac's location
-//! (Core Location) to an event's place, as Apple Maps reckons them (MapKit).
+//! Mac only: driving times from the Mac's location (Core Location) to an
+//! event's place, as Apple Maps reckons them (MapKit). Used when time-to-leave
+//! is on and no leave-from address is set. An address goes through Routes
+//! instead (leave.rs), which isn't tied to the Mac.
 //!
 //! Core Location and MapKit want to be used from the main thread, where their
 //! answers also arrive; `on_main` runs work there and waits for the answer.
@@ -119,8 +121,9 @@ pub async fn current_location(app: &AppHandle) -> Option<(f64, f64)> {
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
-    // Keep following it only for time-to-leave alerts.
-    if !crate::prefs::get().time_to_leave && access() != Access::NotAsked {
+    // Keep following it only while time-to-leave still needs the device
+    // (no leave-from address). Weather asks once and then lets go.
+    if !crate::prefs::get().uses_device_location() && access() != Access::NotAsked {
         stop(app);
     }
     here
@@ -195,25 +198,3 @@ unsafe fn eta(destination: &MKMapItem, arrive: DateTime<Local>, send: Arc<dyn Fn
     }
 }
 
-/// Whether `place` is somewhere you'd travel to, not a video call or a link.
-pub fn is_physical(place: &str) -> bool {
-    let place = place.trim().to_lowercase();
-    !place.is_empty()
-        && !place.contains("://")
-        && !["zoom", "meet.google", "teams", "webex", "facetime", "online", "virtual", "phone", "call"]
-            .iter()
-            .any(|word| place.contains(word))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_real_places_need_travel() {
-        assert!(is_physical("Cafe Roma, 12 High St"));
-        assert!(!is_physical("https://zoom.us/j/123"));
-        assert!(!is_physical("Microsoft Teams Meeting"));
-        assert!(!is_physical("  "));
-    }
-}

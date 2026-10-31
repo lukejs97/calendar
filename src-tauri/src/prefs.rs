@@ -14,8 +14,12 @@ use serde::{Deserialize, Serialize};
 pub struct Prefs {
     /// Show the next event's name and time beside the menu bar icon (macOS).
     pub menu_bar_next: bool,
-    /// Alert when it's time to leave for events with a place (macOS).
+    /// Alert when it's time to leave for events with a place that don't set
+    /// their own leave alert. With a leave-from address this uses Routes;
+    /// on a Mac with no address it uses the Mac's location.
     pub time_to_leave: bool,
+    /// Default starting address for leave-by times. An event can override it.
+    pub leave_from: String,
     /// Show events from the Mac's Calendar app (EventKit).
     pub apple_calendar: bool,
     /// Show reminders from the Mac's Reminders app (EventKit).
@@ -35,6 +39,7 @@ impl Default for Prefs {
         Prefs {
             menu_bar_next: true,
             time_to_leave: false,
+            leave_from: String::new(),
             apple_calendar: false,
             apple_reminders: false,
             apple_calendars_shown: BTreeMap::new(),
@@ -59,6 +64,14 @@ pub fn init(path: Option<PathBuf>) {
 
 pub fn get() -> Prefs {
     PREFS.lock().expect("not poisoned").clone().unwrap_or_default()
+}
+
+impl Prefs {
+    /// The Mac's location is only followed for time-to-leave when no starting
+    /// address is set. An address is looked up from Routes instead.
+    pub fn uses_device_location(&self) -> bool {
+        self.time_to_leave && self.leave_from.trim().is_empty()
+    }
 }
 
 /// Whether the Google calendar `id` of `account` is shown (not hidden in Settings).
@@ -119,5 +132,7 @@ mod tests {
         assert!(prefs.time_to_leave);
         assert!(prefs.menu_bar_next);
         assert!(!prefs.apple_calendar);
+        assert!(prefs.leave_from.is_empty());
+        assert!(prefs.uses_device_location());
     }
 }
