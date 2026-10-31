@@ -22,28 +22,30 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Add in a sentence:** click **+** (or press `N`), or double-click a day, a
   day's heading or a time (right-click for New Event or New Task), and type
   something like
-  "Lunch with Sam tomorrow 1pm at Cafe Roma", "Standup every weekday at 9:30
-  with ana@example.com" or "Conference Nov 12-14 in Berlin, remind me 1 day
-  before". The fields below fill in as you type; change any of them by hand
-  (title, times, all day, place, repeat, alert, guests, notes, calendar).
-  Switch to **Task** to add a Todoist task ("Submit expenses Friday p1", "Pay
-  rent every month on the 1st").
+  "Meeting with Paul Revere tomorrow 1pm at Green Dragon Tavern", "Muster
+  every weekday at 9:30 with samuel.adams@example.com" or "First Continental
+  Congress Sep 5 to Oct 26 in Philadelphia, remind me 1 day before". The fields
+  below fill in as you type; change any of them by hand (title, times, all
+  day, place, repeat, alert, guests, notes, calendar). Switch to **Task** to
+  add a Todoist task ("Boston Tea Party Dec 16 p1", "Paul Revere's ride Apr 18
+  p1", "Lexington and Concord Apr 19 p1", "Muster every month on the 1st").
 - **Quick actions:** right-click an event or task (on a phone, press and
   hold it) for Open, Edit, Complete, Open in Google Calendar or Todoist, and
   Delete. On a phone, press and hold a day's heading, an empty time, or an
   hour down the side (for the leftmost day), for a new event there.
 - **Same time in any time zone:** tick it on a timed event and it keeps its
-  clock time wherever you are (a 9 AM medicine reminder stays 9 AM when you
-  travel), while other events move to show the same moment in your new time
-  zone. Google has no such events, so it's saved as a private mark on the
-  event that Minuteman reads; Google's own apps still show it fixed.
+  clock time wherever you are (a 9 AM muster stays 9 AM when you travel),
+  while other events move to show the same moment in your new time zone.
+  Google has no such events, so it's saved as a private mark on the event
+  that Minuteman reads; Google's own apps still show it fixed.
 - **Edit and delete:** click an event or task, then **Edit** or **Delete**. For
   a repeating event, choose this event only or all of them; its repeat shows
   in words ("Every Monday", "Monthly on the second Tuesday"), and you can
   change it or stop it after this one. Guests are emailed about changes if
   you tick the box.
-- **Details:** time, place (with a map link), a **Join** button for Google
-  Meet, Zoom, Teams or Webex calls, guests and their replies, and notes.
+- **Details:** time, place (a map link; Apple Maps on a phone, Google Maps
+  on a computer), a **Join** button for Google Meet, Zoom, Teams or Webex
+  calls, guests and their replies, and notes.
 - **Drag to move:** in Day and Week view, drag an event to another time or
   day, or its bottom edge to change its length (15-minute steps). In Month view
   and the all-day row, drag anything to another day. Tasks move too (not
@@ -62,15 +64,15 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   from any app; on a phone or the website, its own page). One box does
   everything, and the line under it says what Enter will do:
   - type a name, company, email or part of a number to **find** someone;
-  - type someone new, like "Jane Doe jane@example.com 555-0100 Designer at
-    Acme birthday March 4", to **add** them (phones, emails, addresses,
-    websites, a nickname in brackets, "note: …" are all picked out);
-  - type someone you have with something new ("Sam Lee mobile 555-0101") to
+  - type someone new, like "Abigail Adams abigail@example.com 555-0100 Writer
+    at Braintree birthday November 22", to **add** them (phones, emails,
+    addresses, websites, a nickname in brackets, "note: …" are all picked out);
+  - type someone you have with something new ("Paul Revere mobile 555-0101") to
     **add it to them**;
-  - or say what to do: "call Sam", "text Sam", "email Sam about lunch",
-    "facetime Sam" (Mac), "map Sam", "note Sam: likes jazz" (a dated note),
-    or "meet Sam tomorrow 3pm" (New event, with them invited);
-  - or log what you did: "called Sam about the lease", "met Ana for coffee".
+  - or say what to do: "call Paul", "text Paul", "email Paul about the ride",
+    "facetime Paul" (Mac), "map Paul", "note Paul: two if by sea" (a dated
+    note), or "meet Paul tomorrow 3pm" (New event, with them invited);
+  - or log what you did: "called Paul about the lanterns", "met Abigail for tea".
 
   Each card has buttons to message, call, email, FaceTime, meet or map them,
   their details (click a number to call it, an address to map it), birthdays
@@ -88,9 +90,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   small month calendar with the next few days, and **+** to add. `⌥⌘N`
   (Ctrl+Alt+N on Windows) adds an event from any app. Closing the window keeps
   Minuteman running there; quit from the icon's right-click menu or with ⌘Q.
-  What's next shows beside the icon ("Standup in 12 min", "○ Pay rent at
-  3:00 PM" for a task), or what's on now if nothing starts before it ends
-  ("Work until 5:00 PM"); turn it off in Settings. **Open at login** (Settings) starts Minuteman there when you log in, its window closed. Resize the small window from its edges; drag it (or click its
+  What's next shows beside the icon ("Lexington and Concord in 12 min", "○ Paul Revere's ride at
+  10:00 PM" for a task), or what's on now if nothing starts before it ends
+  ("Congress until 5:00 PM"); turn it off in Settings. **Open at login** (Settings) starts Minuteman there when you log in, its window closed. Resize the small window from its edges; drag it (or click its
   detach button) to keep it open as a window of its own.
 - **Stays in sync:** changes made elsewhere (Google Calendar, Todoist, your
   phone) show up within a minute while Minuteman is open, and as soon as you
@@ -116,8 +118,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   searches) it without internet.
 - **Settings** (the gear, or `,`): Google accounts, Todoist, how many days
   the multi-day view shows (2 to 7; each device remembers its own), the
-  leave-from address and Routes API key, and on the desktop the menu bar,
-  time to leave, and Apple Calendar and Reminders.
+  leave-from address and Routes API key, which map opens a place, and on the
+  desktop the menu bar, time to leave, and Apple Calendar and Reminders.
 - **Several Google accounts:** Settings → Google accounts → **Add account**. While the
   Google project is in **Testing**, add the extra account as a test user first
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).

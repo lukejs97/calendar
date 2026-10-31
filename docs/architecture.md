@@ -13,6 +13,7 @@
 │ api.ts     typed invoke() wrappers                  │
 │ settings.ts Settings, Google accounts, Todoist      │
 │ preferences.ts settings kept on this device         │
+│ maps.ts    where a place opens                      │
 │ event-form.ts New/Edit event or task form;          │
 │            quick-parse.ts reads the sentence        │
 │ details.ts event/task details, Edit and Delete      │
@@ -194,7 +195,8 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   `./?date=YYYY-MM-DD`, read once at start. Either shows Day view.
 - **The card** (`contacts/card.ts`): quick actions open `sms:`, `tel:`,
   `mailto:`, `facetime:` (allowed in `capabilities/default.json`) or a maps
-  link; several numbers give a menu. "With Sam" searches the calendars
+  link (`maps.ts`: Apple Maps on a phone, Google Maps on a computer, unless
+  Settings chose one); several numbers give a menu. "With Sam" searches the calendars
   (`search`) for their email addresses, after the card has been up 300 ms.
   Photos load from `*.googleusercontent.com` (allowed in both CSPs);
   without one, initials on a colour. Notes added here are dated lines.

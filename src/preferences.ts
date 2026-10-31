@@ -1,5 +1,6 @@
 // Settings kept on this device (in the web view's local storage), such as how
-// many days the multi-day view shows. A phone and a Mac can differ.
+// many days the multi-day view shows, and which map app opens a place. A
+// phone and a Mac can differ.
 
 const DAYS_KEY = "calendar.multiDayCount";
 /** How many days the multi-day view can show at once. */
@@ -46,5 +47,29 @@ export function setHourHeight(px: number): void {
     localStorage.setItem(HOUR_HEIGHT_KEY, String(Math.round(px)));
   } catch {
     // Then it lasts until the view is redrawn.
+  }
+}
+
+const MAP_PROVIDER_KEY = "calendar.mapProvider";
+/** Which app opens a place. Absent means Apple Maps on a phone, Google Maps on a computer. */
+export type MapProvider = "apple" | "google";
+
+/** The map app chosen in Settings, or null to follow this device. */
+export function savedMapProvider(): MapProvider | null {
+  try {
+    const saved = localStorage.getItem(MAP_PROVIDER_KEY);
+    if (saved === "apple" || saved === "google") return saved;
+  } catch {
+    // Storage unavailable; follow the device.
+  }
+  return null;
+}
+
+export function setMapProvider(provider: MapProvider | null): void {
+  try {
+    if (provider === null) localStorage.removeItem(MAP_PROVIDER_KEY);
+    else localStorage.setItem(MAP_PROVIDER_KEY, provider);
+  } catch {
+    // Then the choice lasts until the app closes.
   }
 }

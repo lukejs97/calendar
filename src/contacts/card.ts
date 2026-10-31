@@ -4,6 +4,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { errorMessage, search, type AgendaItem, type Contact, type Interaction, type Labeled } from "../api";
 import { el, setItemColor } from "../dom";
+import { mapLink } from "../maps";
 import { describeTimes, itemEnd, itemStart } from "../time";
 import { describeLatest, KIND_WORDS, latestByContact, relativeTime } from "./history";
 import type { Action } from "./parse";
@@ -227,9 +228,6 @@ function copyButton(text: string): HTMLButtonElement {
   });
   return button;
 }
-
-export const mapLink = (address: string) =>
-  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 
 /** Their notes, and a box to add a dated one ("Oct 30: met for coffee"). */
 function notesSection(contact: Contact, actions: CardActions): HTMLElement {

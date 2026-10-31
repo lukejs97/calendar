@@ -26,8 +26,10 @@ import {
   todoistStatus,
 } from "./api";
 import { el } from "./dom";
-import { DAY_COUNTS, multiDayCount, setMultiDayCount } from "./preferences";
 import { refreshLeaveTimes } from "./leave";
+import { defaultMapProvider } from "./maps";
+import type { MapProvider } from "./preferences";
+import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
 import { locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
@@ -100,12 +102,24 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   const weatherNote = el("span", "settings-note", weather.place ? weather.place.name : "Off");
 
   const rows = el("div", "settings-rows");
+  const maps = el("select", "text-input settings-select");
+  maps.setAttribute("aria-label", "Map app");
+  const automatic = defaultMapProvider() === "apple" ? "Automatic (Apple Maps)" : "Automatic (Google Maps)";
+  maps.append(new Option(automatic, ""), new Option("Apple Maps", "apple"), new Option("Google Maps", "google"));
+  maps.value = savedMapProvider() ?? "";
+  maps.addEventListener("change", () => {
+    const value = maps.value;
+    const choice: MapProvider | null = value === "apple" || value === "google" ? value : null;
+    setMapProvider(choice);
+  });
+
   rows.append(
     settingsRow("Google accounts", accountsNote, accounts),
     settingsRow("Calendars", el("span", "settings-note", "Which Google calendars to show"), calendars),
     settingsRow("Todoist", todoistNote, todoist),
     settingsRow("Multi-day view", el("span", "settings-note", "Days shown at once"), days),
     settingsRow("Weather", weatherNote, weatherButton),
+    settingsRow("Maps", el("span", "settings-note", "Where a place opens"), maps),
   );
   // The website (web/): removing an account removes it for every device, so
   // there's also a sign-out that only affects this browser.

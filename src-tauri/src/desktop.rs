@@ -2,12 +2,13 @@
 //! small window, the Contacts window, the quick-add and contacts keyboard
 //! shortcuts, and staying open in the menu bar when the main window is closed.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::PageLoadEvent;
 use tauri::{
     App, AppHandle, Emitter, LogicalPosition, Manager, Monitor, PhysicalPosition, PhysicalSize, Rect, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder, WindowEvent,
@@ -270,6 +271,10 @@ fn contains(monitor: &Monitor, unit: f64, at: PhysicalPosition<f64>) -> bool {
     at.x >= x && at.x < x + width && at.y >= y && at.y < y + height
 }
 
+/// One Contacts window at a time. The button and the shortcut can both fire
+/// before the first one exists.
+static CONTACTS_CREATE: Mutex<()> = Mutex::new(());
+
 /// Opens the Contacts window (made the first time), in front, with `query`
 /// in its box if given (e.g. a guest's email address to look up).
 pub fn show_contacts(app: &AppHandle, query: Option<&str>) {
@@ -279,35 +284,99 @@ pub fn show_contacts(app: &AppHandle, query: Option<&str>) {
     {
         let _ = flyout.hide();
     }
-    let window = match app.get_webview_window(CONTACTS) {
-        Some(window) => {
-            let _ = window.emit("contacts-shown", query);
-            window
-        }
-        None => {
-            // The query as a JSON string is a safe JavaScript literal.
-            let query = serde_json::to_string(&query).expect("serializable");
-            let built = WebviewWindowBuilder::new(app, CONTACTS, WebviewUrl::App("contacts.html".into()))
-                .title("Minuteman Contacts")
-                .inner_size(860.0, 620.0)
-                .min_inner_size(340.0, 420.0)
-                .initialization_script(format!("window.__MINUTEMAN_CONTACTS_QUERY__ = {query};"))
-                .build();
-            let Ok(window) = built else { return };
-            // Closing it only hides it, so it opens again at once, where it was.
-            let hide = window.clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = hide.hide();
-                }
-            });
-            window
+    if let Some(window) = app.get_webview_window(CONTACTS) {
+        reveal_contacts(&window, query);
+        return;
+    }
+    // Windows: `WebviewWindowBuilder::build` deadlocks on the UI thread when
+    // it's called from a synchronous command or a menu/shortcut handler. The
+    // WebView2 callback needs that same thread, so the window stays blank and
+    // its close button never runs. Build it on a worker thread instead.
+    // Elsewhere, build here: a Mac window is created on the main thread.
+    #[cfg(windows)]
+    {
+        let app = app.clone();
+        let query = query.map(str::to_owned);
+        std::thread::spawn(move || open_contacts_window(&app, query.as_deref()));
+    }
+    #[cfg(not(windows))]
+    open_contacts_window(app, query);
+}
+
+/// Builds the Contacts window if it isn't there yet, then shows it.
+fn open_contacts_window(app: &AppHandle, query: Option<&str>) {
+    let _creating = CONTACTS_CREATE.lock().expect("not poisoned");
+    if let Some(window) = app.get_webview_window(CONTACTS) {
+        reveal_contacts(&window, query);
+        return;
+    }
+    // The query as a JSON string is a safe JavaScript literal.
+    let query_json = serde_json::to_string(&query).expect("serializable");
+    // Set once the page has actually loaded, not while it's still `about:blank`.
+    let loaded = Arc::new(AtomicBool::new(false));
+    let loaded_for_page = Arc::clone(&loaded);
+    let built = WebviewWindowBuilder::new(app, CONTACTS, WebviewUrl::App("contacts.html".into()))
+        .title("Minuteman Contacts")
+        .inner_size(860.0, 620.0)
+        .min_inner_size(340.0, 420.0)
+        .initialization_script(format!("window.__MINUTEMAN_CONTACTS_QUERY__ = {query_json};"))
+        .on_page_load(move |_window, payload| {
+            // `about:blank` is the empty window WebView2 shows before (or
+            // instead of) the page. Anything else means the page arrived.
+            let url = payload.url().as_str();
+            if payload.event() == PageLoadEvent::Finished && !url.starts_with("about:") {
+                loaded_for_page.store(true, Ordering::Relaxed);
+            }
+        })
+        .build();
+    let window = match built {
+        Ok(window) => window,
+        Err(e) => {
+            eprintln!("Couldn't open Contacts: {e}");
+            return;
         }
     };
+    keep_contacts_closable(&window, loaded);
+    // The query is already in the page's startup script. Showing is enough;
+    // nothing is listening for `contacts-shown` yet.
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
+}
+
+/// Shows `window` and, when it's already open, puts `query` in its box.
+fn reveal_contacts(window: &WebviewWindow, query: Option<&str>) {
+    let _ = window.emit("contacts-shown", query);
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+/// Closing Contacts hides it, so the next open is immediate. Until the page
+/// has loaded — or if hiding fails — the window really closes, so a blank
+/// one can't get stuck on screen.
+fn keep_contacts_closable(window: &WebviewWindow, loaded: Arc<AtomicBool>) {
+    let hide = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            if !loaded.load(Ordering::Relaxed) {
+                return;
+            }
+            api.prevent_close();
+            // Hiding from inside this handler does nothing on Windows until
+            // the handler has returned. Ask the event loop to hide it next,
+            // and destroy the window if that fails.
+            let to_hide = hide.clone();
+            let queued = hide.run_on_main_thread(move || {
+                if to_hide.hide().is_err() {
+                    let _ = to_hide.destroy();
+                }
+            });
+            if queued.is_err() && hide.hide().is_err() {
+                let _ = hide.destroy();
+            }
+        }
+    });
 }
 
 pub fn show_main(app: &AppHandle) {
