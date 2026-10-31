@@ -275,6 +275,7 @@ fn event_item(event: &EKEvent) -> AgendaItem {
         (start.to_rfc3339(), end.to_rfc3339())
     };
     let item: &EKCalendarItem = event;
+    let alarms = apple_alarms(item);
     let identifier = unsafe { item.calendarItemIdentifier() }.to_string();
     let calendar = unsafe { item.calendar() };
     let notes = unsafe { item.notes() }.map(|n| n.to_string());
@@ -303,7 +304,9 @@ fn event_item(event: &EKEvent) -> AgendaItem {
         conference_url: crate::google::calendar::meeting_link(location.as_deref(), notes.as_deref()),
         description: notes,
         attendees: Vec::new(),
-        reminders: alerts(item),
+        reminders: alarms.0,
+        email_reminders: Vec::new(),
+        alert_at: alarms.1,
         // Apple Calendar has floating events of its own: no time zone. (EventKit
         // already gives their times here.)
         floating: !all_day && unsafe { event.timeZone() }.is_none(),
@@ -311,17 +314,22 @@ fn event_item(event: &EKEvent) -> AgendaItem {
     }
 }
 
-/// Alerts set a time before the start, in minutes.
-fn alerts(item: &EKCalendarItem) -> Vec<u32> {
-    let Some(alarms) = (unsafe { item.alarms() }) else { return Vec::new() };
-    alarms
-        .iter()
-        .filter(|alarm| unsafe { alarm.absoluteDate() }.is_none())
-        .filter_map(|alarm| {
+/// Alerts: a lead time before the start, in minutes, and any set for an exact instant.
+fn apple_alarms(item: &EKCalendarItem) -> (Vec<u32>, Vec<String>) {
+    let Some(alarms) = (unsafe { item.alarms() }) else { return (Vec::new(), Vec::new()) };
+    let mut minutes = Vec::new();
+    let mut at = Vec::new();
+    for alarm in alarms.iter() {
+        if let Some(date) = unsafe { alarm.absoluteDate() } {
+            at.push(local(&date).to_rfc3339());
+        } else {
             let before = -unsafe { alarm.relativeOffset() };
-            (before >= 0.0).then(|| (before / 60.0).round() as u32)
-        })
-        .collect()
+            if before >= 0.0 {
+                minutes.push((before / 60.0).round() as u32);
+            }
+        }
+    }
+    (minutes, at)
 }
 
 /// Reminders not done yet that are due from `from` up to `to` (local dates),
@@ -409,6 +417,8 @@ fn reminder_item(reminder: &EKReminder, from: NaiveDate, to: NaiveDate, today: N
         attendees: Vec::new(),
         conference_url: None,
         reminders: Vec::new(),
+        email_reminders: Vec::new(),
+        alert_at: Vec::new(),
         floating: false,
         time_zone: None,
     })

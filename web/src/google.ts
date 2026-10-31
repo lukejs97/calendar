@@ -224,6 +224,18 @@ interface GoogleEvent {
  */
 const FLOATING = "minutemanFloating";
 
+/**
+ * Exact-time alerts, and any reminder Google's API can't store, kept on the
+ * event as a private property (a JSON string). Google Calendar reminders are
+ * only "minutes before the start", at most 5 of them, and at most 4 weeks
+ * out. These are not reminder overrides: Google's own apps neither show nor
+ * send them. Minuteman reads them back with the event and fires them itself
+ * (on the desktop). Kept in step with `LOCAL_ALERTS` in google/calendar.rs.
+ */
+const LOCAL_ALERTS = "minutemanAlerts";
+const GOOGLE_MAX_OVERRIDES = 5;
+const GOOGLE_MAX_MINUTES = 40_320;
+
 /** Only the event fields the app uses, to keep replies (and the server's work) small. */
 const EVENT_FIELDS =
   "nextPageToken,items(id,status,summary,location,htmlLink,start,end,eventType,description,hangoutLink," +
@@ -394,11 +406,13 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     findMeetingLink(event.location) ??
     findMeetingLink(event.description) ??
     null;
-  const reminders = allDay
-    ? []
-    : popupMinutes(
-        event.reminders && !event.reminders.useDefault ? (event.reminders.overrides ?? []) : (calendar.defaultReminders ?? []),
-      );
+  const source =
+    event.reminders && !event.reminders.useDefault ? (event.reminders.overrides ?? []) : (calendar.defaultReminders ?? []);
+  const stored = readStored(event.extendedProperties?.private?.[LOCAL_ALERTS]);
+  // All-day events too: "1 day before" is measured back from midnight.
+  const reminders = unique([...minutesOf(source, "popup"), ...stored.popup]);
+  const emailReminders = unique([...minutesOf(source, "email"), ...stored.email]);
+  const alertAt = stored.at;
   const organizedByYou = !event.organizer || !!event.organizer.self;
   const guests: Attendee[] = attendees
     .filter((a) => !a.resource)
@@ -438,11 +452,31 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     attendees: guests,
     conferenceUrl,
     reminders,
+    emailReminders,
+    alertAt,
   };
 }
 
-const popupMinutes = (reminders: Reminder[]) =>
-  reminders.filter((r) => r.method === "popup" && r.minutes !== undefined).map((r) => r.minutes!);
+interface StoredAlerts {
+  at?: string[];
+  popup?: number[];
+  email?: number[];
+}
+
+const readStored = (value?: string): Required<StoredAlerts> => {
+  if (!value) return { at: [], popup: [], email: [] };
+  try {
+    const parsed = JSON.parse(value) as StoredAlerts;
+    return { at: parsed.at ?? [], popup: parsed.popup ?? [], email: parsed.email ?? [] };
+  } catch {
+    return { at: [], popup: [], email: [] };
+  }
+};
+
+const minutesOf = (reminders: Reminder[], method: string) =>
+  reminders.filter((r) => r.method === method && r.minutes !== undefined).map((r) => r.minutes!);
+
+const unique = (minutes: number[]) => minutes.filter((m, i) => minutes.indexOf(m) === i);
 
 const MEETING_HOSTS = [
   "zoom.us/",
@@ -498,14 +532,16 @@ function draftJson(draft: EventDraft): Record<string, unknown> {
     location: text(draft.location),
     description: text(draft.description),
   };
-  if (draft.alerts?.kind === "default") body.reminders = { useDefault: true };
-  if (draft.alerts?.kind === "custom") {
-    body.reminders = { useDefault: false, overrides: draft.alerts.minutes.map((minutes) => ({ method: "popup", minutes })) };
+  const privateProps: Record<string, string> = {};
+  if (draft.floating !== null && draft.floating !== undefined) privateProps[FLOATING] = String(draft.floating);
+  if (draft.alerts) {
+    const split = splitAlerts(draft.alerts);
+    body.reminders = split.reminders;
+    // An empty string asks an update to remove alerts kept earlier.
+    privateProps[LOCAL_ALERTS] = split.stored;
   }
+  if (Object.keys(privateProps).length > 0) body.extendedProperties = { private: privateProps };
   if (draft.recurrence) body.recurrence = draft.recurrence;
-  if (draft.floating !== null && draft.floating !== undefined) {
-    body.extendedProperties = { private: { [FLOATING]: String(draft.floating) } };
-  }
   if (draft.guests) {
     body.attendees = draft.guests.map((g) =>
       g.response ? { email: g.email.trim(), responseStatus: g.response } : { email: g.email.trim() },
@@ -522,7 +558,9 @@ function eventsUrl(calendarId: string, eventId: string | null, notifyGuests: boo
 
 export async function createEvent(token: string, calendarId: string, draft: EventDraft): Promise<void> {
   const hasGuests = !!draft.guests?.length;
-  await google(token, eventsUrl(calendarId, null, hasGuests), { method: "POST", body: JSON.stringify(draftJson(draft)) });
+  const body = draftJson(draft);
+  dropEmptyPrivate(body);
+  await google(token, eventsUrl(calendarId, null, hasGuests), { method: "POST", body: JSON.stringify(body) });
 }
 
 /** Saves an edited event. For one occurrence of a repeating event, only that one changes. */
@@ -533,9 +571,11 @@ export async function updateEvent(
   draft: EventDraft,
   notifyGuests: boolean,
 ): Promise<void> {
+  const body = draftJson(draft);
+  await mergePrivate(token, calendarId, eventId, body);
   await google(token, eventsUrl(calendarId, eventId, notifyGuests), {
     method: "PATCH",
-    body: JSON.stringify(draftJson(draft)),
+    body: JSON.stringify(body),
   });
 }
 
@@ -567,7 +607,64 @@ export async function updateSeries(
     if (!firstDay) throw apiError(200, "Google sent a repeating event without a start");
     Object.assign(body, timesJson(shiftSeries(firstDay, occurrence, draft, zone)));
   }
+  await mergePrivate(token, calendarId, seriesId, body);
   await google(token, eventsUrl(calendarId, seriesId, notifyGuests), { method: "PATCH", body: JSON.stringify(body) });
+}
+
+/**
+ * The reminders Google will store, and a JSON string of the rest ("" when
+ * there's nothing to keep). Mirrors `split_alerts` in google/calendar.rs.
+ */
+function splitAlerts(alerts: NonNullable<EventDraft["alerts"]>): {
+  reminders: { useDefault: boolean; overrides?: { method: string; minutes: number }[] };
+  stored: string;
+} {
+  if (alerts.kind === "default") return { reminders: { useDefault: true }, stored: "" };
+  const specs =
+    alerts.alerts ?? (alerts.minutes ?? []).map((minutes) => ({ kind: "relative" as const, minutes, method: "popup" as const }));
+  const overrides: { method: string; minutes: number }[] = [];
+  const stored: Required<StoredAlerts> = { at: [], popup: [], email: [] };
+  for (const spec of specs) {
+    if (spec.kind === "absolute") {
+      parseTime(spec.at);
+      stored.at.push(spec.at);
+      continue;
+    }
+    const minutes = spec.minutes;
+    if (!Number.isInteger(minutes) || minutes < 0) throw invalidInput("a notification's lead time must be a whole number of minutes");
+    const method = spec.method === "email" ? "email" : "popup";
+    if (minutes <= GOOGLE_MAX_MINUTES && overrides.length < GOOGLE_MAX_OVERRIDES) overrides.push({ method, minutes });
+    else if (method === "email") stored.email.push(minutes);
+    else stored.popup.push(minutes);
+  }
+  const kept = stored.at.length || stored.popup.length || stored.email.length ? JSON.stringify(stored) : "";
+  return { reminders: { useDefault: false, overrides }, stored: kept };
+}
+
+/** A new event has nothing to clear: don't store a blank private key. */
+function dropEmptyPrivate(body: Record<string, unknown>): void {
+  const ext = body.extendedProperties as { private?: Record<string, string> } | undefined;
+  if (!ext?.private) return;
+  for (const [key, value] of Object.entries(ext.private)) if (value === "") delete ext.private[key];
+  if (Object.keys(ext.private).length === 0) delete body.extendedProperties;
+}
+
+/**
+ * Google replaces the whole private-property map when a patch includes one.
+ * Read what's there and lay our keys over it. An empty string removes a key.
+ */
+async function mergePrivate(token: string, calendarId: string, eventId: string, body: Record<string, unknown>): Promise<void> {
+  const ext = body.extendedProperties as { private?: Record<string, string> } | undefined;
+  if (!ext?.private) return;
+  const url = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
+  url.searchParams.set("fields", "extendedProperties/private");
+  const current = await google<{ extendedProperties?: { private?: Record<string, string> } }>(token, url.toString());
+  const merged = { ...(current.extendedProperties?.private ?? {}) };
+  for (const [key, value] of Object.entries(ext.private)) {
+    if (value === "") delete merged[key];
+    else merged[key] = value;
+  }
+  body.extendedProperties = { private: merged };
 }
 
 function sameTime(a: string, b: string): boolean {

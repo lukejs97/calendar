@@ -87,9 +87,9 @@ const TODOIST_REPEATS: Record<Repeat, string> = {
 /** "on the 1st", "the 15th": the next such day of the month. */
 const DAY_OF_MONTH = /\b(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b/i;
 
-/** "remind me 30 min before", "alert 1 hour before", "reminder 2 days early". */
+/** "remind me 30 min before", "alert 1 hour before", "reminder 2 weeks early". */
 const ALERT =
-  /\b(?:remind\s+me|reminder|alert(?:\s+me)?|notify\s+me)\s+(\d+(?:\.\d+)?|an?|one)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\s*(?:before|early|earlier|ahead|prior)?\b/i;
+  /\b(?:remind\s+me|reminder|alert(?:\s+me)?|notify\s+me)\s+(\d+(?:\.\d+)?|an?|one)\s*(minutes?|mins?|m|hours?|hrs?|h|weeks?|wks?|days?|d)\s*(?:before|early|earlier|ahead|prior)?\b/i;
 const ALERT_AT_START = /\b(?:remind\s+me|alert(?:\s+me)?|notify\s+me)\s+(?:at|when\s+it)\s+(?:the\s+)?starts?\b/i;
 const NO_ALERT = /\bno\s+(?:alerts?|reminders?|notifications?)\b/i;
 
@@ -275,7 +275,8 @@ function nextDayOfMonth(now: Date, day: number): Date {
 function alertMinutes(amount: string, unit: string): number {
   const count = /^(?:an?|one)$/i.test(amount) ? 1 : Number(amount);
   const u = unit.toLowerCase();
-  return Math.round(count * (u.startsWith("d") ? 24 * 60 : u.startsWith("h") ? 60 : 1));
+  const scale = u.startsWith("w") ? 7 * 24 * 60 : u.startsWith("d") ? 24 * 60 : u.startsWith("h") ? 60 : 1;
+  return Math.round(count * scale);
 }
 
 function durationMinutes(amount: string, unit: string): number {

@@ -157,6 +157,8 @@ mod tests {
             attendees: Vec::new(),
             conference_url: None,
             reminders: Vec::new(),
+            email_reminders: Vec::new(),
+            alert_at: Vec::new(),
             floating: false,
             time_zone: None,
         }
@@ -216,5 +218,33 @@ mod tests {
         );
         cache.forget(&a);
         assert_eq!(ids(&cache.all()), ["b1"]);
+    }
+
+    #[test]
+    fn items_saved_before_exact_alerts_still_load() {
+        let json = r#"{
+            "savedAt": "2026-10-01T00:00:00+00:00",
+            "items": [{
+                "id": "google:cal:1",
+                "source": "google",
+                "kind": "event",
+                "title": "Standup",
+                "start": "2026-11-02T15:00:00+00:00",
+                "end": null,
+                "allDay": false,
+                "location": null,
+                "color": null,
+                "listName": "Work",
+                "url": null,
+                "completed": false,
+                "overdue": false,
+                "priority": null,
+                "reminders": [10, 1440]
+            }]
+        }"#;
+        let saved: Saved = serde_json::from_str(json).unwrap();
+        assert_eq!(saved.items[0].reminders, vec![10, 1440]);
+        assert!(saved.items[0].email_reminders.is_empty());
+        assert!(saved.items[0].alert_at.is_empty());
     }
 }

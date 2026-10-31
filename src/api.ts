@@ -52,8 +52,15 @@ export interface AgendaItem {
   attendees: Attendee[];
   /** Video call link: Google Meet, Zoom, Teams and the like. */
   conferenceUrl: string | null;
-  /** When to alert, in minutes before the start. */
+  /** Popup alerts, in minutes before the start. */
   reminders: number[];
+  /** Email alerts, in minutes before the start. Google sends these. */
+  emailReminders?: number[];
+  /**
+   * Exact instants to alert (ISO). Minuteman stores and fires these; Google
+   * Calendar's own reminders can't represent an absolute time.
+   */
+  alertAt?: string[];
   /**
    * Keeps its clock time in any time zone (an event marked so here, or
    * Apple's floating events): its times are that clock time here.
@@ -113,8 +120,23 @@ export interface EventTimes {
   timeZone: string | null;
 }
 
-/** An event's alerts: its calendar's defaults, or its own (minutes before; empty for none). */
-export type Alerts = { kind: "default" } | { kind: "custom"; minutes: number[] };
+/** How a notification is delivered. "popup" is a notification; "email" is Google's. */
+export type AlertMethod = "popup" | "email";
+
+/**
+ * One notification. `relative` is a lead time before the start (minutes, however
+ * it was entered). `absolute` is an exact instant, which Google Calendar cannot
+ * store as a reminder.
+ */
+export type EventAlert =
+  | { kind: "relative"; minutes: number; method?: AlertMethod }
+  | { kind: "absolute"; at: string };
+
+/**
+ * An event's alerts: its calendar's defaults, or its own list (empty for none).
+ * `minutes` is the older shape (popup minutes only) and still accepted.
+ */
+export type Alerts = { kind: "default" } | { kind: "custom"; minutes?: number[]; alerts?: EventAlert[] };
 
 /** An event as the New or Edit form filled it in. Mirrors `EventDraft` in google/calendar.rs. */
 export interface EventDraft extends EventTimes {

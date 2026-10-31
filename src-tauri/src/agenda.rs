@@ -98,9 +98,19 @@ pub struct AgendaItem {
     /// Video call link: Google Meet, Zoom, Teams, Webex and the like.
     #[serde(default)]
     pub conference_url: Option<String>,
-    /// When to alert, in minutes before the start. Timed Google events only.
+    /// Popup alerts, in minutes before the start. Google's own, or (past
+    /// Google's limit of 5) ones Minuteman kept on the event. See
+    /// `LOCAL_ALERTS` in google/calendar.rs.
     #[serde(default)]
     pub reminders: Vec<u32>,
+    /// Email alerts, in minutes before the start. Google sends these; the app
+    /// doesn't also pop up.
+    #[serde(default)]
+    pub email_reminders: Vec<u32>,
+    /// Exact instants to alert (RFC 3339). Not Google reminders: Minuteman
+    /// stores them on the event and fires them itself.
+    #[serde(default)]
+    pub alert_at: Vec<String>,
     /// Keeps its clock time in any time zone: `start` and `end` are then that
     /// clock time here (see google/calendar.rs `FLOATING`).
     #[serde(default)]

@@ -5,6 +5,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import type {
   Agenda,
   AgendaItem,
+  Alerts,
   Contact,
   ContactDraft,
   EventDraft,
@@ -134,7 +135,11 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     }
     if (weekday === 1) timed(day, "Planning", WORK, 10, 60, undefined, { recurring: true, seriesId: "planning" });
     if (weekday === 2) {
-      timed(day, "Design review", WORK, 11, 60, "Room 4");
+      timed(day, "Design review", WORK, 11, 60, "Room 4", {
+        reminders: [30, 7 * 24 * 60],
+        emailReminders: [60],
+        alertAt: [new Date(day.getFullYear(), day.getMonth(), day.getDate(), 8, 0).toISOString()],
+      });
       timed(day, "Lunch with Sam", PERSONAL, 11.5, 60, "Cafe Roma");
       timed(day, "Quick sync", WORK, 11.75, 30);
     }
@@ -268,6 +273,22 @@ export function install(): void {
   const edits = new Map<string, Partial<AgendaItem>>();
   const deleted = new Set<string>();
   const edit = (id: string, changes: Partial<AgendaItem>) => edits.set(id, { ...edits.get(id), ...changes });
+  /** What the form saved, as the agenda would show it after a reload. Null leaves them as they are. */
+  const savedAlerts = (alerts: Alerts | null): Pick<AgendaItem, "reminders" | "emailReminders" | "alertAt"> | null => {
+    if (!alerts) return null;
+    if (alerts.kind === "default") return { reminders: [10], emailReminders: [], alertAt: [] };
+    const list =
+      alerts.alerts ?? (alerts.minutes ?? []).map((minutes) => ({ kind: "relative" as const, minutes, method: "popup" as const }));
+    const reminders: number[] = [];
+    const emailReminders: number[] = [];
+    const alertAt: string[] = [];
+    for (const alert of list) {
+      if (alert.kind === "absolute") alertAt.push(alert.at);
+      else if (alert.method === "email") emailReminders.push(alert.minutes);
+      else reminders.push(alert.minutes);
+    }
+    return { reminders, emailReminders, alertAt };
+  };
   const dueFields = (due: TaskDue): Partial<AgendaItem> => {
     if (due.kind !== "at") return {};
     const allDay = due.at.length === 10;
@@ -465,7 +486,7 @@ export function install(): void {
           description: null,
           attendees: [],
           conferenceUrl: null,
-          reminders: [10],
+          ...(savedAlerts(event.alerts) ?? { reminders: [10], emailReminders: [], alertAt: [] }),
         });
         return null;
       }
@@ -477,7 +498,8 @@ export function install(): void {
         };
         if (occurrence) console.info("mock IPC: update_event for the whole series", target, event, occurrence);
         const { title, start, end, allDay, location, description } = event;
-        edit(target.eventId, { title, start, end, allDay, location, description });
+        const alerts = savedAlerts(event.alerts);
+        edit(target.eventId, { title, start, end, allDay, location, description, ...(alerts ?? {}) });
         return null;
       }
       case "set_event_times": {
