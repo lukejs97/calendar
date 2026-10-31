@@ -64,7 +64,38 @@ function timeString(d: Date): string {
 function combine(date: string, time: string): Date {
   const [year, month, day] = date.split("-").map(Number);
   const [h, m] = (time || "00:00").split(":").map(Number);
-  return new Date(year, month - 1, day, h, m);
+  const when = new Date(year, month - 1, day, h, m);
+  // Date maps years 0–99 onto the 1900s. Keep the year that was typed.
+  if (!Number.isNaN(year)) when.setFullYear(year);
+  return when;
+}
+
+/**
+ * `new Date` only accepts a four-digit year. A date field can hold a longer
+ * one (22021-10-31T09:30:00+00:00), which would otherwise come back blank.
+ */
+function parseInstant(at: string): Date | null {
+  const parsed = new Date(at);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  const match = /^([+-]?\d+)-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.exec(at.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] ?? "0");
+  const zone = match[7] ?? "Z";
+  let offset = 0;
+  if (zone !== "Z") {
+    const sign = zone.startsWith("-") ? -1 : 1;
+    const [zh, zm] = zone.slice(1).split(":").map(Number);
+    offset = sign * (zh * 60 + zm);
+  }
+  const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  utc.setUTCFullYear(year);
+  utc.setTime(utc.getTime() - offset * 60_000);
+  return Number.isNaN(utc.getTime()) ? null : utc;
 }
 
 function bell(): SVGElement {
@@ -158,6 +189,8 @@ export class AlertEditor {
       if (row.unit === "at") {
         const when = row.date && row.time ? combine(row.date, row.time) : null;
         if (!when || Number.isNaN(when.getTime())) throw new Error("Choose a date and time for each notification.");
+        const year = when.getFullYear();
+        if (year < 1 || year > 9999) throw new Error("Choose a year from 1 to 9999 for each notification.");
         return { kind: "absolute", at: toLocalIso(when) };
       }
       if (!/^\d+$/.test(row.amount.trim())) throw new Error("Enter a whole number for each notification.");
@@ -174,8 +207,8 @@ export class AlertEditor {
   }
 
   private absolute(at: string): Row {
-    const date = new Date(at);
-    if (Number.isNaN(date.getTime())) return { method: "popup", unit: "at", amount: "30", date: "", time: "" };
+    const date = parseInstant(at);
+    if (!date) return { method: "popup", unit: "at", amount: "30", date: "", time: "" };
     return { method: "popup", unit: "at", amount: "30", date: toDateString(date), time: timeString(date) };
   }
 

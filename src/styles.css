@@ -984,6 +984,16 @@ main.loading > * {
   width: 4.75rem;
 }
 
+.alert-row .alert-date {
+  flex: 1 1 9.5rem;
+  min-width: 9.5rem;
+}
+
+.alert-row .alert-time {
+  flex: 0 1 7.5rem;
+  min-width: 7rem;
+}
+
 .alert-remove {
   flex: none;
   width: 28px;
