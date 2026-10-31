@@ -2,8 +2,11 @@
 # the installer (Minuteman_x.y.z_x64-setup.exe) to the run, so a Windows PC
 # can install it without any developer tools.
 #
-# Run it from the repo's Actions tab ("Build Windows app" → "Run workflow"),
-# then download "Minuteman-Windows" from the finished run's Artifacts section.
+# Runs on every push to main (docs, the README, site/, and web/ are skipped),
+# and from the repo's Actions tab ("Build Windows app" → "Run workflow").
+# Download "Minuteman-Windows" from the finished run's Artifacts section.
+# The installer is an Actions artifact only; this workflow does not publish
+# a GitHub Release.
 #
 # Needs the same two repository secrets as the Mac build (Settings → Secrets
 # and variables → Actions): GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.
@@ -16,9 +19,26 @@ name: Build Windows app
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      # Not part of the desktop app, so they would not change the installer.
+      - "**.md"
+      - "docs/**"
+      - "site/**"
+      - "web/**"
+      - ".vscode/**"
+      - ".github/workflows/build-macos.yml"
+      - ".github/workflows/deploy-web.yml"
+      - ".github/workflows/pages.yml"
 
 permissions:
   contents: read
+
+# A newer push cancels an in-progress build of this workflow.
+concurrency:
+  group: build-windows
+  cancel-in-progress: true
 
 jobs:
   build:
