@@ -4,12 +4,16 @@
 //   todoist             encrypted Todoist API token
 //   hiddenCalendars     encrypted list of Google calendars hidden in Settings
 //   interactions        encrypted history with people in Contacts (calls, notes…)
+//   leaveSettings       default leave-from address and the Routes caps
+//   routesUsage         how many Routes attempts have been made (the free-tier cap)
+//   routesCache         recent drive times, so a refresh doesn't ask again
 //   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
 //   oauth:<state>       a Google sign-in in progress (10 minutes)
 //
 // One person per deployment: the site's owner, who can add several Google
 // accounts. Tokens never leave the server; browsers only get a session cookie.
 import type { Interaction } from "../../src/api";
+import type { Usage } from "../../src/routes-budget";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import type { Env } from "./env";
 
@@ -82,6 +86,61 @@ export async function writeInteractions(env: Env, entries: Interaction[]): Promi
 
 export const readTodoistToken = (env: Env) => readEncrypted(env, "todoist");
 export const writeTodoistToken = (env: Env, token: string | null) => writeEncrypted(env, "todoist", token);
+
+/** The default starting address and the Routes caps. Not the API key. */
+export interface LeaveSettings {
+  leaveFrom: string;
+  routesDailyLimit: number;
+  routesMonthlyLimit: number;
+}
+
+export async function readLeaveSettings(env: Env): Promise<LeaveSettings> {
+  const json = await readEncrypted(env, "leaveSettings");
+  const parsed = json ? (JSON.parse(json) as Partial<LeaveSettings>) : {};
+  return {
+    leaveFrom: typeof parsed.leaveFrom === "string" ? parsed.leaveFrom : "",
+    routesDailyLimit: typeof parsed.routesDailyLimit === "number" ? parsed.routesDailyLimit : 80,
+    routesMonthlyLimit: typeof parsed.routesMonthlyLimit === "number" ? parsed.routesMonthlyLimit : 2500,
+  };
+}
+
+export async function writeLeaveSettings(env: Env, settings: LeaveSettings): Promise<void> {
+  await writeEncrypted(env, "leaveSettings", JSON.stringify(settings));
+}
+
+/** Routes attempts already made, so a restart doesn't start the count over. */
+export async function readRoutesUsage(env: Env): Promise<Usage | null> {
+  const json = await readEncrypted(env, "routesUsage");
+  if (!json) return null;
+  const parsed = JSON.parse(json) as { day?: string; dayCount?: number; month?: string; monthCount?: number };
+  if (!parsed.day || !parsed.month) return null;
+  return {
+    day: parsed.day,
+    dayCount: parsed.dayCount ?? 0,
+    month: parsed.month,
+    monthCount: parsed.monthCount ?? 0,
+  };
+}
+
+export async function writeRoutesUsage(env: Env, usage: Usage): Promise<void> {
+  await writeEncrypted(env, "routesUsage", JSON.stringify(usage));
+}
+
+export interface RouteCacheEntry {
+  at: string;
+  minutes: number | null;
+}
+
+export type RouteCache = Record<string, RouteCacheEntry>;
+
+export async function readRoutesCache(env: Env): Promise<RouteCache> {
+  const json = await readEncrypted(env, "routesCache");
+  return json ? (JSON.parse(json) as RouteCache) : {};
+}
+
+export async function writeRoutesCache(env: Env, cache: RouteCache): Promise<void> {
+  await writeEncrypted(env, "routesCache", JSON.stringify(cache));
+}
 
 /** Starts a session; returns the value for the browser's cookie. */
 export async function createSession(env: Env): Promise<string> {

@@ -9,6 +9,8 @@ import {
   eventCalendars,
   eventRecurrence,
   eventRef,
+  getPreferences,
+  routesKeyStatus,
   todoistProjects,
   todoistStatus,
   updateEvent,
@@ -152,7 +154,8 @@ class Form {
   private endTime = input("time");
   private location = input("text", "Place or video link");
   /** Where this event's drive starts, when it isn't the address in Settings. */
-  private leaveFrom = input("text", "Settings default");
+  private leaveFrom = input("text", "Set a default in Settings");
+  private leaveHint = el("div", "form-notes", "Where you start from, if it isn't the address in Settings.");
   private repeat = select(REPEAT_OPTIONS);
   /** For one event in a repeating series: change just it, or all of them. */
   private scope = select([
@@ -251,6 +254,7 @@ class Form {
     if (this.item) this.fillFromItem(this.item);
     else this.fillDefaults();
     void this.loadCalendars();
+    void this.loadLeaveDefault();
     this.setMode(this.mode);
   }
 
@@ -291,8 +295,7 @@ class Form {
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
     this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
     this.row(grid, "Where", this.location);
-    const leaveHint = el("div", "form-notes", "Where you start from, if it isn't the address in Settings.");
-    this.row(grid, "Leave from", this.leaveFrom, leaveHint);
+    this.row(grid, "Leave from", this.leaveFrom, this.leaveHint);
     this.row(grid, "Repeat", this.repeat);
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
@@ -334,6 +337,18 @@ class Form {
     this.calendar.addEventListener("change", () => {
       if (!this.item) save(CALENDAR_STORAGE_KEY, this.calendarChoices[Number(this.calendar.value)]);
     });
+  }
+
+  /** The placeholder is the address in Settings, once that's known. */
+  private async loadLeaveDefault(): Promise<void> {
+    const [prefs, key] = await Promise.all([getPreferences().catch(() => null), routesKeyStatus().catch(() => null)]);
+    if (!this.leaveFrom.isConnected) return;
+    const address = prefs?.leaveFrom?.trim() ?? "";
+    this.leaveFrom.placeholder = address || "Set a default in Settings";
+    const traffic = key?.configured ? "" : " Live traffic isn't set up, so leave-by times stay hidden until it is.";
+    this.leaveHint.textContent = address
+      ? `Uses “${address}” from Settings when this is empty.${traffic}`
+      : `Set a default address in Settings, or type one here.${traffic}`;
   }
 
   private buildTaskFields(): void {

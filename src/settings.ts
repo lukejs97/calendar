@@ -131,9 +131,9 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
   }
 
-  // Leave-by: an address and a Routes key. The desktop app, a phone build, and
-  // `npm run dev`. (The website doesn't keep these.)
-  if (isTauri() || import.meta.env.DEV) void addTravelRow(rows, openScreen);
+  // Leave-by: the default address. On the website the Routes key stays on the
+  // server; the row still lets you set and see the address from a phone.
+  void addTravelRow(rows, openScreen);
 
   // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
   // (To preview them in a browser during `npm run dev`, add ?desktop.)
@@ -255,13 +255,18 @@ async function addTravelRow(rows: HTMLElement, openScreen: (open: (back: () => v
   } catch {
     return;
   }
-  const note = el("span", "settings-note", prefs.leaveFrom.trim() || "Not set");
-  const button = el("button", "pill-button", prefs.leaveFrom.trim() ? "Change…" : "Set up…");
+  const keyState = await routesKeyStatus().catch(() => null);
+  const address = prefs.leaveFrom.trim();
+  const traffic = keyState?.configured ? "" : " · traffic off";
+  const note = el("span", "settings-note", address ? `${address}${traffic}` : "Not set");
+  const button = el("button", "pill-button", address ? "Change…" : "Set up…");
   button.addEventListener("click", () => {
-    openScreen((back) => openTravelSettings(back, (address) => {
-      note.textContent = address || "Not set";
-      button.textContent = address ? "Change…" : "Set up…";
-    }));
+    openScreen((back) =>
+      openTravelSettings(back, (saved) => {
+        note.textContent = saved ? `${saved}${keyState?.configured ? "" : " · traffic off"}` : "Not set";
+        button.textContent = saved ? "Change…" : "Set up…";
+      }),
+    );
   });
   rows.append(settingsRow("Leave from", note, button));
 }
@@ -277,10 +282,15 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   });
   const title = el("h2", undefined, "Leave from");
   title.id = "travel-title";
+  // The deployed website never asks for the key: it would otherwise sit in
+  // the browser. Lookups use a Cloudflare secret, or they don't run.
+  const onWeb = !isTauri() && !import.meta.env.DEV;
   const help = el(
     "p",
     undefined,
-    "Events with a place show when to leave, from this address, using live traffic. An event can start somewhere else. The key is a Google Routes API key (Cloud Console → enable Routes API → Credentials → Create API key). It can also be the MINUTEMAN_ROUTES_API_KEY environment variable. It isn't saved in the app itself.",
+    onWeb
+      ? "Events with a place show when to leave, from this address. An event can start somewhere else. Live traffic runs on the server. The Routes key is a Cloudflare secret and never comes to this phone. Until that secret is set, you can save the address, but leave-by times stay hidden."
+      : "Events with a place show when to leave, from this address, using live traffic. An event can start somewhere else. The key is a Google Routes API key (Cloud Console → enable Routes API → Credentials → Create API key). It can also be the MINUTEMAN_ROUTES_API_KEY environment variable. It isn't saved in the app itself.",
   );
   const address = el("input", "text-input");
   address.type = "text";
@@ -311,8 +321,7 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   form.append(
     el("label", "field-label", "Address"),
     address,
-    el("label", "field-label", "Routes API key"),
-    key,
+    ...(onWeb ? [] : [el("label", "field-label", "Routes API key"), key]),
     status,
     el("label", "field-label", "Lookups per day"),
     daily,
@@ -336,7 +345,8 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
       const routesMonthlyLimit = clampRoutesLimit(monthly.value, monthMax, prefs.routesMonthlyLimit ?? 2500);
       await setPreferences({ ...prefs, leaveFrom, routesDailyLimit, routesMonthlyLimit });
       // Blank keeps a key that's already saved. Remove clears it.
-      if (key.value.trim()) await setRoutesKey(key.value.trim());
+      // The website has no key field: the secret stays on the server.
+      if (!onWeb && key.value.trim()) await setRoutesKey(key.value.trim());
       onAddress(leaveFrom);
       refreshLeaveTimes();
       dialog.close();
@@ -388,7 +398,9 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
       return;
     }
     if (keyState.source === "environment") {
-      status.textContent = "Using MINUTEMAN_ROUTES_API_KEY from the environment. A key saved here isn't used while that's set.";
+      status.textContent = onWeb
+        ? "Live traffic is on. The Routes key stays on the server and isn't in this browser."
+        : "Using MINUTEMAN_ROUTES_API_KEY from the environment. A key saved here isn't used while that's set.";
     } else if (keyState.source === "dotenv") {
       status.textContent = "Using MINUTEMAN_ROUTES_API_KEY from .env (development). A key saved here is used instead once you save one.";
     } else if (keyState.configured) {
@@ -396,7 +408,9 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
       key.placeholder = "Saved";
       remove.hidden = false;
     } else {
-      status.textContent = "No key yet. Without one, leave-by times stay hidden.";
+      status.textContent = onWeb
+        ? "Live traffic is off until a Routes key is set on the server. The address still saves."
+        : "No key yet. Without one, leave-by times stay hidden.";
     }
   })();
 }

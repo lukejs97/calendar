@@ -9,6 +9,8 @@ import type {
   EventTimes,
   Interaction,
   InteractionKind,
+  LeaveQuery,
+  Preferences,
   TaskDraft,
   TaskDue,
 } from "../../src/api";
@@ -20,12 +22,17 @@ import * as google from "./google";
 import {
   readAccounts,
   readInteractions,
+  readLeaveSettings,
+  readRoutesUsage,
   readTodoistToken,
   removeAccount,
   setCalendarShown,
   writeInteractions,
+  writeLeaveSettings,
   writeTodoistToken,
 } from "./store";
+import * as routes from "./routes";
+import { clampLimits, capped, emptyUsage, pacificDate, MAX_DAILY, MAX_MONTHLY } from "../../src/routes-budget";
 import * as todoist from "./todoist";
 
 type Args = Record<string, unknown>;
@@ -226,37 +233,57 @@ export const commands: Record<string, Command> = {
     return null;
   },
 
-  // Leave-by times are worked out in the app (the shared Rust core). The
-  // website keeps the address and the alert on the event, and doesn't call
-  // Routes itself, so a missing key is the answer here.
-  async leave_times(_ctx, args) {
+  // Leave-by. The address and the caps live in KV. The Routes key is a Worker
+  // secret and is never returned. Lookups, when the secret is set, use the
+  // same daily and monthly cap as the desktop app.
+  async get_preferences(ctx) {
+    const leave = await readLeaveSettings(ctx.env);
+    const limits = clampLimits(leave.routesDailyLimit, leave.routesMonthlyLimit);
+    const prefs: Preferences = {
+      menuBarNext: true,
+      timeToLeave: false,
+      leaveFrom: leave.leaveFrom,
+      routesDailyLimit: limits.daily,
+      routesMonthlyLimit: limits.monthly,
+      appleCalendar: false,
+      appleReminders: false,
+      appleCalendarsShown: {},
+    };
+    return prefs;
+  },
+  async set_preferences(ctx, args) {
+    const prefs = value<Partial<Preferences>>(args, "preferences");
+    const limits = clampLimits(Number(prefs.routesDailyLimit), Number(prefs.routesMonthlyLimit));
+    const leaveFrom = typeof prefs.leaveFrom === "string" ? prefs.leaveFrom.trim().slice(0, 300) : "";
+    await writeLeaveSettings(ctx.env, { leaveFrom, routesDailyLimit: limits.daily, routesMonthlyLimit: limits.monthly });
+    return null;
+  },
+  async leave_times(ctx, args) {
     const events = args.events;
     if (!Array.isArray(events)) throw invalidInput("events must be a list");
-    return events.slice(0, 40).map((event) => {
-      const row = event as { id?: unknown; start?: unknown; location?: unknown };
-      const id = typeof row.id === "string" ? row.id : "";
-      const start = typeof row.start === "string" ? row.start : "";
-      const location = typeof row.location === "string" ? row.location : "";
-      const virtual =
-        !location.trim() || /:\/\/|zoom|meet\.google|teams|webex|facetime|online|virtual|\bphone\b|\bcall\b/i.test(location);
-      return { id, start, minutes: null, leaveAt: null, status: virtual ? "notPhysical" : "noKey" };
-    });
+    return routes.leaveTimes(ctx.env, events as LeaveQuery[]);
   },
-  async routes_key_status() {
-    return { configured: false, source: "none" };
+  async routes_key_status(ctx) {
+    const configured = !!ctx.env.MINUTEMAN_ROUTES_API_KEY?.trim();
+    // "environment" means the Worker secret. The key itself is not sent.
+    return { configured, source: configured ? "environment" : "none" };
   },
-  async routes_usage() {
+  async routes_usage(ctx) {
+    const leave = await readLeaveSettings(ctx.env);
+    const limits = clampLimits(leave.routesDailyLimit, leave.routesMonthlyLimit);
+    const usage = (await readRoutesUsage(ctx.env)) ?? emptyUsage(new Date());
+    const today = pacificDate(new Date());
     return {
-      dayCount: 0,
-      dayLimit: 80,
-      monthCount: 0,
-      monthLimit: 2500,
-      capped: "none",
-      maxDaily: 160,
-      maxMonthly: 4000,
+      dayCount: usage.day === today ? usage.dayCount : 0,
+      dayLimit: limits.daily,
+      monthCount: usage.month === today.slice(0, 7) ? usage.monthCount : 0,
+      monthLimit: limits.monthly,
+      capped: capped(usage, today, limits),
+      maxDaily: MAX_DAILY,
+      maxMonthly: MAX_MONTHLY,
     };
   },
   async set_routes_key() {
-    throw invalidInput("A Routes API key is set in the app, not on the website");
+    throw invalidInput("On the website the Routes key is a Cloudflare secret, not something you paste here");
   },
 };

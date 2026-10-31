@@ -11,6 +11,11 @@ export interface Env {
   TOKEN_KEY: string;
   /** Google accounts allowed to sign in, comma-separated. */
   ALLOWED_EMAILS: string;
+  /**
+   * Routes API key for leave-by times. A Worker secret, never sent to the
+   * browser. Absent until `wrangler secret put MINUTEMAN_ROUTES_API_KEY`.
+   */
+  MINUTEMAN_ROUTES_API_KEY?: string;
 }
 
 /** Per-request details every command needs. */
