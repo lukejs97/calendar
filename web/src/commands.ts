@@ -245,6 +245,17 @@ export const commands: Record<string, Command> = {
   async routes_key_status() {
     return { configured: false, source: "none" };
   },
+  async routes_usage() {
+    return {
+      dayCount: 0,
+      dayLimit: 80,
+      monthCount: 0,
+      monthLimit: 2500,
+      capped: "none",
+      maxDaily: 160,
+      maxMonthly: 4000,
+    };
+  },
   async set_routes_key() {
     throw invalidInput("A Routes API key is set in the app, not on the website");
   },

@@ -15,8 +15,8 @@ use std::future::Future;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{DateTime, SecondsFormat, TimeDelta, TimeZone, Utc};
-use serde::Serialize;
+use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, TimeDelta, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::secrets;
@@ -44,6 +44,31 @@ const FAILURE_TTL: TimeDelta = TimeDelta::minutes(2);
 /// Where a drive from the device's own location is cached (no street address).
 const DEVICE_ORIGIN: &str = "@device";
 
+/// Free successful Compute Routes Pro requests per month (traffic-aware).
+/// Google Maps Platform pricing list, checked 2026-10-31. The cap resets at
+/// midnight Pacific time on the first of the month.
+pub const FREE_ROUTES_PER_MONTH: u32 = 5_000;
+/// Default lookups per Pacific day. 80 × 31 = 2,480, under half the free cap,
+/// and each lookup may be two requests (a guess and one refinement).
+pub const DEFAULT_DAILY: u32 = 80;
+/// Default lookups per Pacific month. Half the free cap, so a raised daily
+/// limit still cannot spend the whole allowance.
+pub const DEFAULT_MONTHLY: u32 = 2_500;
+/// Highest daily limit Settings will keep. floor(5,000 / 31) is 161; 160
+/// leaves a little room for quota and billing not matching exactly.
+pub const MAX_DAILY: u32 = 160;
+/// Highest monthly limit. Leaves 1,000 of the free 5,000 unused.
+pub const MAX_MONTHLY: u32 = 4_000;
+
+/// The caps above stay inside the free tier: a full month of the daily
+/// maximum, and the monthly maximum itself.
+const _: () = {
+    assert!(MAX_DAILY * 31 <= FREE_ROUTES_PER_MONTH);
+    assert!(MAX_MONTHLY < FREE_ROUTES_PER_MONTH);
+    assert!(DEFAULT_DAILY * 31 < FREE_ROUTES_PER_MONTH / 2);
+    assert!(DEFAULT_MONTHLY * 2 == FREE_ROUTES_PER_MONTH);
+};
+
 /// Why a leave-by time isn't shown. `ok` is the one that has a time.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +80,9 @@ pub enum TravelStatus {
     TooFar,
     Past,
     Unavailable,
+    /// The daily or monthly Routes cap is used up. A drive already saved is
+    /// still shown; nothing new is asked of Google.
+    Limited,
 }
 
 /// Where the Routes API key was found. `environment` wins over Settings.
@@ -329,10 +357,14 @@ where
 {
     match classify(destination, arrive, now, origin, has_key, allow_device) {
         Classify::Status(status) => answer(None, arrive, status),
-        Classify::Routes(origin) => {
-            let minutes = driving_minutes(http, &origin, destination, arrive, now).await;
-            answer(minutes, arrive, if minutes.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable })
-        }
+        Classify::Routes(origin) => match driving_minutes(http, &origin, destination, arrive, now).await {
+            Fetch::Ready(minutes) => answer(Some(minutes), arrive, TravelStatus::Ok),
+            // No new request. A drive saved earlier is returned above, from
+            // the cache, and can still fire a leave alert. With nothing saved,
+            // the alert waits.
+            Fetch::Limited => answer(None, arrive, TravelStatus::Limited),
+            Fetch::Failed => answer(None, arrive, TravelStatus::Unavailable),
+        },
         Classify::Device => {
             let key = cache_key(DEVICE_ORIGIN, destination, arrive);
             if let Some(cached) = lookup(&key, arrive, now) {
@@ -345,26 +377,73 @@ where
     }
 }
 
-async fn driving_minutes(http: &reqwest::Client, origin: &str, destination: &str, arrive: DateTime<Utc>, now: DateTime<Utc>) -> Option<u32> {
-    let key = cache_key(origin, destination, arrive);
-    if let Some(cached) = lookup(&key, arrive, now) {
-        return cached;
-    }
-    let minutes = fetch_minutes(http, origin, destination, arrive, now).await;
-    remember(&key, minutes, Utc::now());
-    minutes
+enum Fetch {
+    Ready(u32),
+    Failed,
+    Limited,
 }
 
-async fn fetch_minutes(http: &reqwest::Client, origin: &str, destination: &str, arrive: DateTime<Utc>, now: DateTime<Utc>) -> Option<u32> {
-    let key = api_key()?;
+async fn driving_minutes(
+    http: &reqwest::Client,
+    origin: &str,
+    destination: &str,
+    arrive: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Fetch {
+    let key = cache_key(origin, destination, arrive);
+    if let Some(cached) = lookup(&key, arrive, now) {
+        return match cached {
+            Some(minutes) => Fetch::Ready(minutes),
+            None => Fetch::Failed,
+        };
+    }
+    let fetched = fetch_minutes(http, origin, destination, arrive, now).await;
+    match fetched {
+        Fetch::Ready(minutes) => remember(&key, Some(minutes), Utc::now()),
+        Fetch::Failed => remember(&key, None, Utc::now()),
+        // Don't remember a cap as a failed drive: when the day turns, the
+        // next check should ask again instead of waiting out a failure.
+        Fetch::Limited => {}
+    }
+    fetched
+}
+
+async fn fetch_minutes(
+    http: &reqwest::Client,
+    origin: &str,
+    destination: &str,
+    arrive: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Fetch {
+    let Some(key) = api_key() else { return Fetch::Failed };
     let mut departure = first_departure(now, arrive);
     let mut refined = false;
+    // The first answer, kept if the refinement would pass the cap.
+    let mut latest: Option<u32> = None;
     loop {
-        let seconds = query(http, &key, origin, destination, departure).await?;
-        let minutes = minutes_from_seconds(seconds)?;
+        // Count this attempt before it is sent, success or failure.
+        if !try_spend(now) {
+            return match latest {
+                Some(minutes) => Fetch::Ready(minutes),
+                None => Fetch::Limited,
+            };
+        }
+        let Some(seconds) = query(http, &key, origin, destination, departure).await else {
+            return match latest {
+                Some(minutes) => Fetch::Ready(minutes),
+                None => Fetch::Failed,
+            };
+        };
+        let Some(minutes) = minutes_from_seconds(seconds) else {
+            return match latest {
+                Some(minutes) => Fetch::Ready(minutes),
+                None => Fetch::Failed,
+            };
+        };
         match judge(departure, minutes, arrive, now, refined) {
-            Sample::Done(minutes) => return Some(minutes),
+            Sample::Done(minutes) => return Fetch::Ready(minutes),
             Sample::Again(next) => {
+                latest = Some(minutes);
                 departure = next;
                 refined = true;
             }
@@ -487,6 +566,215 @@ pub fn set_api_key(key: &str) -> crate::error::Result<()> {
         return Err(crate::error::AppError::InvalidInput("That doesn't look like an API key.".into()));
     }
     secrets::set(secrets::ROUTES_API_KEY, key)
+}
+
+/// One day's and one month's Routes requests, in Pacific time (the clock
+/// Google's free cap uses). Counts are of attempts, not only successes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Usage {
+    pub day: NaiveDate,
+    pub day_count: u32,
+    /// The first day of the counted month.
+    pub month: NaiveDate,
+    pub month_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub daily: u32,
+    pub monthly: u32,
+}
+
+/// What one more request does to the count.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Charge {
+    Allowed(Usage),
+    /// The day is full. `Usage` is the count after any date rollover, not incremented.
+    Daily(Usage),
+    /// The month is full.
+    Monthly(Usage),
+}
+
+/// What Settings shows, and whether new requests are paused.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSnapshot {
+    pub day_count: u32,
+    pub day_limit: u32,
+    pub month_count: u32,
+    pub month_limit: u32,
+    /// "none", "day", or "month".
+    pub capped: &'static str,
+    pub max_daily: u32,
+    pub max_monthly: u32,
+}
+
+/// The Pacific date Google uses for daily quotas and the monthly free cap.
+pub fn pacific_date(now: DateTime<Utc>) -> NaiveDate {
+    now.with_timezone(&chrono_tz::America::Los_Angeles).date_naive()
+}
+
+fn month_start(day: NaiveDate) -> NaiveDate {
+    NaiveDate::from_ymd_opt(day.year(), day.month(), 1).expect("the first of the month")
+}
+
+/// A number from Settings, kept inside the range that cannot be unlimited.
+pub fn clamp_limits(daily: u32, monthly: u32) -> Limits {
+    Limits { daily: daily.min(MAX_DAILY), monthly: monthly.min(MAX_MONTHLY) }
+}
+
+/// Drop a finished day or month before deciding. A new month clears both.
+pub fn roll(usage: Usage, today: NaiveDate) -> Usage {
+    let month = month_start(today);
+    if usage.month != month {
+        Usage { day: today, day_count: 0, month, month_count: 0 }
+    } else if usage.day != today {
+        Usage { day: today, day_count: 0, ..usage }
+    } else {
+        usage
+    }
+}
+
+/// Count one Routes attempt if both caps still have room. A failure counts
+/// the same as a success: the caller records the attempt, then sends.
+pub fn charge(usage: Usage, today: NaiveDate, limits: Limits) -> Charge {
+    let usage = roll(usage, today);
+    if usage.month_count >= limits.monthly {
+        return Charge::Monthly(usage);
+    }
+    if usage.day_count >= limits.daily {
+        return Charge::Daily(usage);
+    }
+    Charge::Allowed(Usage { day_count: usage.day_count + 1, month_count: usage.month_count + 1, ..usage })
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedUsage {
+    day: String,
+    day_count: u32,
+    month: String,
+    month_count: u32,
+}
+
+impl SavedUsage {
+    fn from_usage(usage: &Usage) -> Self {
+        SavedUsage {
+            day: usage.day.to_string(),
+            day_count: usage.day_count,
+            month: format!("{:04}-{:02}", usage.month.year(), usage.month.month()),
+            month_count: usage.month_count,
+        }
+    }
+
+    fn to_usage(&self) -> Option<Usage> {
+        let day = NaiveDate::parse_from_str(&self.day, "%Y-%m-%d").ok()?;
+        let month = NaiveDate::parse_from_str(&format!("{}-01", self.month), "%Y-%m-%d").ok()?;
+        Some(Usage { day, day_count: self.day_count, month, month_count: self.month_count })
+    }
+}
+
+/// The count on disk, so it survives a restart. `path` None is memory only
+/// (tests, or a config folder that couldn't be found).
+pub struct UsageStore {
+    path: Option<std::path::PathBuf>,
+    usage: Usage,
+}
+
+impl UsageStore {
+    pub fn load(path: Option<std::path::PathBuf>) -> Self {
+        let usage = path
+            .as_ref()
+            .and_then(|p| std::fs::read(p).ok())
+            .and_then(|bytes| serde_json::from_slice::<SavedUsage>(&bytes).ok())
+            .and_then(|saved| saved.to_usage())
+            .unwrap_or_else(|| Usage { day: pacific_date(Utc::now()), day_count: 0, month: month_start(pacific_date(Utc::now())), month_count: 0 });
+        UsageStore { path, usage }
+    }
+
+    /// Record one attempt. False when a cap is already full, or the count
+    /// could not be saved (then nothing is sent, so a restart can't forget it
+    /// and keep going).
+    pub fn try_spend(&mut self, now: DateTime<Utc>, limits: Limits) -> bool {
+        let limits = clamp_limits(limits.daily, limits.monthly);
+        match charge(self.usage.clone(), pacific_date(now), limits) {
+            Charge::Allowed(next) => {
+                self.usage = next;
+                self.save()
+            }
+            Charge::Daily(rolled) | Charge::Monthly(rolled) => {
+                self.usage = rolled;
+                let _ = self.save();
+                false
+            }
+        }
+    }
+
+    pub fn snapshot(&self, now: DateTime<Utc>, limits: Limits) -> UsageSnapshot {
+        let limits = clamp_limits(limits.daily, limits.monthly);
+        let usage = roll(self.usage.clone(), pacific_date(now));
+        let capped = if usage.month_count >= limits.monthly {
+            "month"
+        } else if usage.day_count >= limits.daily {
+            "day"
+        } else {
+            "none"
+        };
+        UsageSnapshot {
+            day_count: usage.day_count,
+            day_limit: limits.daily,
+            month_count: usage.month_count,
+            month_limit: limits.monthly,
+            capped,
+            max_daily: MAX_DAILY,
+            max_monthly: MAX_MONTHLY,
+        }
+    }
+
+    /// False when a file was supposed to be written and wasn't.
+    fn save(&self) -> bool {
+        let Some(path) = &self.path else { return true };
+        let Ok(json) = serde_json::to_vec_pretty(&SavedUsage::from_usage(&self.usage)) else { return false };
+        if let Some(dir) = path.parent()
+            && std::fs::create_dir_all(dir).is_err()
+        {
+            return false;
+        }
+        let temporary = path.with_extension("json.tmp");
+        if std::fs::write(&temporary, json).is_err() {
+            return false;
+        }
+        std::fs::rename(&temporary, path).is_ok()
+    }
+}
+
+static USAGE: Mutex<Option<UsageStore>> = Mutex::new(None);
+
+/// Reads the usage file once at startup. Missing means a count of zero.
+pub fn init_usage(path: Option<std::path::PathBuf>) {
+    *USAGE.lock().expect("not poisoned") = Some(UsageStore::load(path));
+}
+
+fn with_store<T>(f: impl FnOnce(&mut UsageStore) -> T) -> T {
+    let mut guard = USAGE.lock().expect("not poisoned");
+    if guard.is_none() {
+        *guard = Some(UsageStore::load(None));
+    }
+    f(guard.as_mut().expect("loaded above"))
+}
+
+fn current_limits() -> Limits {
+    let prefs = crate::prefs::get();
+    clamp_limits(prefs.routes_daily_limit, prefs.routes_monthly_limit)
+}
+
+/// Count one attempt against the saved caps. False means do not send.
+fn try_spend(now: DateTime<Utc>) -> bool {
+    with_store(|store| store.try_spend(now, current_limits()))
+}
+
+/// The counts Settings shows.
+pub fn usage_snapshot(now: DateTime<Utc>) -> UsageSnapshot {
+    with_store(|store| store.snapshot(now, current_limits()))
 }
 
 #[cfg(test)]
@@ -676,5 +964,100 @@ mod tests {
         assert_eq!(parse_env_value(text, ENV_KEY).as_deref(), Some("abc-123"));
         assert_eq!(parse_env_value("MINUTEMAN_ROUTES_API_KEY=\n", ENV_KEY), None);
         assert_eq!(parse_env_value("MINUTEMAN_ROUTES_API_KEY=  \n", ENV_KEY), None);
+    }
+
+    fn empty(day: NaiveDate) -> Usage {
+        Usage { day, day_count: 0, month: month_start(day), month_count: 0 }
+    }
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn pacific_midnight_is_the_quota_boundary() {
+        // December is Pacific Standard Time (UTC−8): midnight is 08:00 UTC.
+        assert_eq!(pacific_date(utc("2026-12-01T07:30:00Z")), day(2026, 11, 30));
+        assert_eq!(pacific_date(utc("2026-12-01T08:30:00Z")), day(2026, 12, 1));
+        // July is daylight time (UTC−7): midnight is 07:00 UTC.
+        assert_eq!(pacific_date(utc("2026-07-01T06:30:00Z")), day(2026, 6, 30));
+        assert_eq!(pacific_date(utc("2026-07-01T07:30:00Z")), day(2026, 7, 1));
+    }
+
+    #[test]
+    fn every_attempt_counts_and_the_next_one_stops() {
+        let today = day(2026, 6, 15);
+        let limits = Limits { daily: 2, monthly: 10 };
+        let once = charge(empty(today), today, limits);
+        let Charge::Allowed(usage) = once else { panic!("first attempt") };
+        assert_eq!((usage.day_count, usage.month_count), (1, 1));
+        // A failure is the same charge: the caller records it before hearing back.
+        let Charge::Allowed(usage) = charge(usage, today, limits) else { panic!("second") };
+        assert_eq!(usage.day_count, 2);
+        match charge(usage.clone(), today, limits) {
+            Charge::Daily(stayed) => assert_eq!(stayed.day_count, 2),
+            other => panic!("expected the daily cap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_new_day_resets_the_day_and_a_new_month_resets_both() {
+        let june = day(2026, 6, 15);
+        let limits = Limits { daily: 2, monthly: 10 };
+        let usage = Usage { day: june, day_count: 2, month: month_start(june), month_count: 5 };
+        let Charge::Allowed(next) = charge(usage, day(2026, 6, 16), limits) else { panic!("next day") };
+        assert_eq!((next.day_count, next.month_count), (1, 6));
+
+        let Charge::Allowed(july) = charge(next, day(2026, 7, 1), limits) else { panic!("next month") };
+        assert_eq!((july.day_count, july.month_count), (1, 1));
+        assert_eq!(july.month, day(2026, 7, 1));
+    }
+
+    #[test]
+    fn the_monthly_cap_stops_a_fresh_day() {
+        let today = day(2026, 6, 15);
+        let usage = Usage { day: today, day_count: 0, month: month_start(today), month_count: 4 };
+        let limits = Limits { daily: 80, monthly: 4 };
+        match charge(usage, today, limits) {
+            Charge::Monthly(stayed) => assert_eq!((stayed.day_count, stayed.month_count), (0, 4)),
+            other => panic!("expected the monthly cap, got {other:?}"),
+        }
+        // Zero means no requests at all, which is still not unlimited.
+        match charge(empty(today), today, Limits { daily: 0, monthly: 10 }) {
+            Charge::Daily(stayed) => assert_eq!(stayed.day_count, 0),
+            other => panic!("expected a daily stop, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_limit_above_the_free_tier_is_pulled_back() {
+        assert_eq!(clamp_limits(10_000, 10_000), Limits { daily: MAX_DAILY, monthly: MAX_MONTHLY });
+        assert_eq!(clamp_limits(0, 2_500), Limits { daily: 0, monthly: DEFAULT_MONTHLY });
+        // 160 a day for 31 days is 4,960, under the 5,000 free requests.
+        assert!(MAX_DAILY as u64 * 31 <= FREE_ROUTES_PER_MONTH as u64);
+        assert!(DEFAULT_DAILY as u64 * 31 < FREE_ROUTES_PER_MONTH as u64 / 2);
+        assert!(MAX_MONTHLY < FREE_ROUTES_PER_MONTH);
+    }
+
+    #[test]
+    fn the_count_survives_a_restart_and_then_stops() {
+        let path = std::env::temp_dir().join(format!("minuteman-routes-usage-{}-restart.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let now = utc("2026-06-15T18:00:00Z");
+        let limits = Limits { daily: 2, monthly: 10 };
+        {
+            let mut store = UsageStore::load(Some(path.clone()));
+            assert!(store.try_spend(now, limits));
+            assert!(store.try_spend(now, limits));
+            assert!(!store.try_spend(now, limits));
+        }
+        let mut store = UsageStore::load(Some(path.clone()));
+        assert_eq!(store.usage.day_count, 2);
+        assert_eq!(store.snapshot(now, limits).capped, "day");
+        // The next Pacific day is allowed again, and the month keeps counting.
+        let tomorrow = utc("2026-06-16T18:00:00Z");
+        assert!(store.try_spend(tomorrow, limits));
+        assert_eq!((store.usage.day_count, store.usage.month_count), (1, 3));
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -234,3 +234,56 @@ street address, and confirm the day view says **Leave by** a time. Add
 **before leaving** with **0** minutes and leave the app running (the window
 can be closed). A notification **Time to leave for …** should appear at that
 leave-by time. `cargo test --lib leave::` checks the time math without a key.
+
+### Staying inside the free tier
+
+Traffic-aware routing (`TRAFFIC_AWARE`) is billed as **Routes: Compute Routes
+Pro**. As of the [pricing list](https://developers.google.com/maps/billing-and-pricing/pricing)
+checked on 2026-10-31, that SKU includes **5,000 free successful requests per
+month**. The free cap resets at midnight Pacific time on the first of the
+month. Above it, requests are charged (about $10 per 1,000).
+
+Google's own advice for a daily quota that cannot exceed a monthly free cap
+is: divide the cap by 31 (the longest month) and round down. 5,000 / 31 is
+161.2, so **161 per day** stays at or under 5,000 even if every day hits it
+(161 × 31 = 4,991). They also say to set the quota a little lower than the
+absolute maximum, because the quota system and the bill don't always count
+the same requests.
+
+Minuteman counts **every** Routes attempt, including failures and the second
+request it sometimes sends to refine a departure time, and stops before
+Google would have billed that many successes. The defaults, in
+**Settings → Leave from**, are:
+
+- **80 per day.** 80 × 31 = 2,480, under half of 5,000.
+- **2,500 per month.** Half the free cap, so raising the daily limit still
+  cannot spend the whole allowance.
+
+Neither can be set to unlimited. The highest the app will keep is **160 a
+day** (160 × 31 = 4,960, just under 5,000) and **4,000 a month** (1,000 of
+the free requests left unused, for the quota and the bill disagreeing). A
+blank or nonsense number is left as it was. Counts are saved on disk and
+reset at midnight Pacific time, the same clock as Google's quota. When a
+limit is reached, new lookups stop: no leave-by time is fetched, and a
+"before leaving" alert fires only if a drive was already saved. The Mac's
+Apple Maps fallback is unchanged, and only runs when there is no leave-from
+address.
+
+Set a hard cap in Google Cloud as well, so Google refuses the request
+instead of billing it. Daily quotas reset at midnight Pacific time.
+
+1. Open [APIs & Services → Routes API → Quotas](https://console.cloud.google.com/apis/api/routes.googleapis.com/quotas)
+   (the same page as **Google Maps Platform → Quotas**, with Routes API
+   selected).
+2. Find the **per day** quota for Compute Routes requests (not the per-minute
+   rate limit, which is 3,000). Select it, click **Edit**, and set it to
+   **160** or less. **Submit**. A decrease is a quota change; it can take a
+   few minutes to apply.
+3. When the project reaches that number, Routes requests fail for the rest
+   of the day. Minuteman treats a failed lookup like any other miss: it
+   shows no new leave-by time.
+
+The Quotas page is not the bill. Check **Billing** if you want to confirm
+nothing was charged. Successful requests and server errors count against the
+Cloud quota; a rejected API key does not. Minuteman's own counter counts
+those too.

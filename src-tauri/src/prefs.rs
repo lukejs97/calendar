@@ -20,6 +20,10 @@ pub struct Prefs {
     pub time_to_leave: bool,
     /// Default starting address for leave-by times. An event can override it.
     pub leave_from: String,
+    /// Routes attempts allowed per Pacific day. Clamped; never unlimited.
+    pub routes_daily_limit: u32,
+    /// Routes attempts allowed per Pacific month. Clamped; never unlimited.
+    pub routes_monthly_limit: u32,
     /// Show events from the Mac's Calendar app (EventKit).
     pub apple_calendar: bool,
     /// Show reminders from the Mac's Reminders app (EventKit).
@@ -40,6 +44,8 @@ impl Default for Prefs {
             menu_bar_next: true,
             time_to_leave: false,
             leave_from: String::new(),
+            routes_daily_limit: crate::leave::DEFAULT_DAILY,
+            routes_monthly_limit: crate::leave::DEFAULT_MONTHLY,
             apple_calendar: false,
             apple_reminders: false,
             apple_calendars_shown: BTreeMap::new(),
@@ -134,5 +140,7 @@ mod tests {
         assert!(!prefs.apple_calendar);
         assert!(prefs.leave_from.is_empty());
         assert!(prefs.uses_device_location());
+        assert_eq!(prefs.routes_daily_limit, crate::leave::DEFAULT_DAILY);
+        assert_eq!(prefs.routes_monthly_limit, crate::leave::DEFAULT_MONTHLY);
     }
 }

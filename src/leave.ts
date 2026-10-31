@@ -152,6 +152,8 @@ export function leaveHint(status: LeaveStatus | undefined): string | null {
       return "Couldn't check traffic just now.";
     case "tooFar":
       return "Travel time shows within two days of the event.";
+    case "limited":
+      return "Leave-by lookups are paused until the Routes limit resets. A drive already saved is still used.";
     default:
       return null;
   }
