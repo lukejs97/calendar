@@ -112,7 +112,12 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   `MINUTEMAN_ROUTES_API_KEY`, else the keychain, else (development builds) a
   `.env` line read at run time — never compiled in. Driving traffic is asked
   at a departure time, then once more if that drive would change when you
-  leave. Answers are cached, and refreshed sooner as the event gets closer
+  leave. Every attempt, including a failure, counts toward a daily and a
+  monthly cap (`routes-usage.json`, reset at midnight Pacific time) so a
+  month of traffic-aware requests stays inside the free 5,000. At the cap,
+  nothing new is asked; a drive already saved is still used, and a leave
+  alert without one waits. Answers are cached, and refreshed sooner as the
+  event gets closer
   (5 minutes inside 45 minutes, up to 4 hours when it's more than 12 hours
   away). Nothing is asked until the event is inside 48 hours, or when there's
   no key, no address, no real place, or the lookup fails. "Before leaving" is

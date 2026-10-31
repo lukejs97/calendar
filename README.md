@@ -104,8 +104,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   event can override. Events at a real place show when to leave, from live
   traffic (Google's Routes API). Add **before leaving** as an alert — for
   example 10 minutes before that time, or 0 to be told at the leave-by time
-  itself. The API key goes in Settings or in `MINUTEMAN_ROUTES_API_KEY`; it
-  is never built into the app. With no key, no address, or a failed lookup,
+  itself.   The API key goes in Settings or in `MINUTEMAN_ROUTES_API_KEY`; it
+  is never built into the app. Lookups stop at a daily and monthly limit
+  (80 and 2,500 by default, changeable in Settings, never unlimited) so a
+  month stays inside the free tier. With no key, no address, a full limit,
+  or a failed lookup,
   the calendar still works and just doesn't show a time. On a Mac, Settings →
   Time to leave still alerts for events that don't set their own, using that
   address, or Apple Maps from the Mac's location when no address is set.

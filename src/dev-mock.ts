@@ -309,6 +309,8 @@ export function install(): void {
     menuBarNext: true,
     timeToLeave: false,
     leaveFrom: "100 Main Street, Springfield",
+    routesDailyLimit: 80,
+    routesMonthlyLimit: 2500,
     appleCalendar: false,
     appleReminders: false,
     appleCalendarsShown: {} as Record<string, boolean>,
@@ -560,9 +562,15 @@ export function install(): void {
       }
       case "get_preferences":
         return preferences;
-      case "set_preferences":
-        preferences = (args as { preferences: typeof preferences }).preferences;
+      case "set_preferences": {
+        const next = (args as { preferences: typeof preferences }).preferences;
+        preferences = {
+          ...next,
+          routesDailyLimit: Math.min(Math.max(0, next.routesDailyLimit ?? 80), 160),
+          routesMonthlyLimit: Math.min(Math.max(0, next.routesMonthlyLimit ?? 2500), 4000),
+        };
         return null;
+      }
       case "apple_status":
         return appleAccess;
       case "apple_request_access": {
@@ -580,6 +588,16 @@ export function install(): void {
         return "granted";
       case "routes_key_status":
         return { configured: routesKey.length > 0, source: routesKey ? "settings" : "none" };
+      case "routes_usage":
+        return {
+          dayCount: 3,
+          dayLimit: preferences.routesDailyLimit,
+          monthCount: 10,
+          monthLimit: preferences.routesMonthlyLimit,
+          capped: "none",
+          maxDaily: 160,
+          maxMonthly: 4000,
+        };
       case "set_routes_key": {
         const key = (args as { key: string }).key.trim();
         if (key.length > 256 || /\s/.test(key)) throw { kind: "input", message: "Invalid request: That doesn't look like an API key." };

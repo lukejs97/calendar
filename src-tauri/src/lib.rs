@@ -417,6 +417,9 @@ fn set_preferences(app: AppHandle, cache: State<'_, AgendaCache>, preferences: p
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;
+    let mut preferences = preferences;
+    preferences.routes_daily_limit = preferences.routes_daily_limit.min(leave::MAX_DAILY);
+    preferences.routes_monthly_limit = preferences.routes_monthly_limit.min(leave::MAX_MONTHLY);
     prefs::set(preferences);
     // Redraw the menu bar text, and reload (Apple calendars may have changed).
     events_changed();
@@ -609,6 +612,12 @@ fn routes_key_status() -> leave::RoutesKeyStatus {
     leave::key_status()
 }
 
+/// How many Routes attempts have been used today and this month (Pacific time).
+#[tauri::command]
+fn routes_usage() -> leave::UsageSnapshot {
+    leave::usage_snapshot(chrono::Utc::now())
+}
+
 /// Saves a Routes API key in the keychain, or clears it when `key` is empty.
 /// A key in the environment still wins over this one.
 #[tauri::command]
@@ -755,6 +764,7 @@ pub fn run() {
             let path = app.path().app_cache_dir().ok().map(|dir| dir.join("contacts.json"));
             app.manage(ContactsCache::load(path));
             prefs::init(app.path().app_config_dir().ok().map(|dir| dir.join("preferences.json")));
+            leave::init_usage(app.path().app_config_dir().ok().map(|dir| dir.join("routes-usage.json")));
             app.manage(Interactions::load(app.path().app_config_dir().ok().map(|dir| dir.join("interactions.json"))));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
@@ -815,6 +825,7 @@ pub fn run() {
             current_location,
             leave_times,
             routes_key_status,
+            routes_usage,
             set_routes_key,
             open_at_login,
             set_open_at_login,

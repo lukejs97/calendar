@@ -13,11 +13,13 @@ import {
   setOpenAtLogin,
   locationAccess,
   routesKeyStatus,
+  routesUsage,
   setPreferences,
   setRoutesKey,
   type Access,
   type AppleStatus,
   type Preferences,
+  type RoutesUsage,
   removeGoogleAccount,
   setGoogleCalendarShown,
   signIn,
@@ -290,10 +292,35 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   key.placeholder = "API key";
   key.setAttribute("aria-label", "Routes API key");
   key.autocomplete = "off";
+  const daily = el("input", "text-input");
+  daily.type = "number";
+  daily.min = "0";
+  daily.step = "1";
+  daily.inputMode = "numeric";
+  daily.setAttribute("aria-label", "Routes lookups per day");
+  const monthly = el("input", "text-input");
+  monthly.type = "number";
+  monthly.min = "0";
+  monthly.step = "1";
+  monthly.inputMode = "numeric";
+  monthly.setAttribute("aria-label", "Routes lookups per month");
+  const usage = el("p", "settings-note", "…");
   const status = el("p", "settings-note", "…");
   const error = el("p", "error");
   const form = el("form");
-  form.append(el("label", "field-label", "Address"), address, el("label", "field-label", "Routes API key"), key, status, error);
+  form.append(
+    el("label", "field-label", "Address"),
+    address,
+    el("label", "field-label", "Routes API key"),
+    key,
+    status,
+    el("label", "field-label", "Lookups per day"),
+    daily,
+    el("label", "field-label", "Lookups per month"),
+    monthly,
+    usage,
+    error,
+  );
   const save = el("button", "primary-button", "Save");
   save.type = "submit";
   form.addEventListener("submit", async (e) => {
@@ -303,7 +330,11 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
     try {
       const prefs = await getPreferences();
       const leaveFrom = address.value.trim().slice(0, 300);
-      await setPreferences({ ...prefs, leaveFrom });
+      const dayMax = Number(daily.max) || 160;
+      const monthMax = Number(monthly.max) || 4000;
+      const routesDailyLimit = clampRoutesLimit(daily.value, dayMax, prefs.routesDailyLimit ?? 80);
+      const routesMonthlyLimit = clampRoutesLimit(monthly.value, monthMax, prefs.routesMonthlyLimit ?? 2500);
+      await setPreferences({ ...prefs, leaveFrom, routesDailyLimit, routesMonthlyLimit });
       // Blank keeps a key that's already saved. Remove clears it.
       if (key.value.trim()) await setRoutesKey(key.value.trim());
       onAddress(leaveFrom);
@@ -338,12 +369,20 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   address.focus();
 
   void (async () => {
-    const [prefs, keyState] = await Promise.all([
+    const [prefs, keyState, used] = await Promise.all([
       getPreferences().catch(() => null),
       routesKeyStatus().catch(() => null),
+      routesUsage().catch(() => null),
     ]);
     if (!address.isConnected) return;
-    if (prefs) address.value = prefs.leaveFrom ?? "";
+    if (prefs) {
+      address.value = prefs.leaveFrom ?? "";
+      daily.max = String(used?.maxDaily ?? 160);
+      monthly.max = String(used?.maxMonthly ?? 4000);
+      daily.value = String(prefs.routesDailyLimit ?? used?.dayLimit ?? 80);
+      monthly.value = String(prefs.routesMonthlyLimit ?? used?.monthLimit ?? 2500);
+    }
+    usage.textContent = usageNote(used);
     if (!keyState) {
       status.textContent = "";
       return;
@@ -360,6 +399,28 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
       status.textContent = "No key yet. Without one, leave-by times stay hidden.";
     }
   })();
+}
+
+/** A whole number from 0 up to `max`. Blank or junk keeps `fallback`. */
+function clampRoutesLimit(raw: string, max: number, fallback: number): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  return Math.min(value, max);
+}
+
+/** A quiet line under the limits: how many lookups are left, or that they're paused. */
+function usageNote(used: RoutesUsage | null): string {
+  if (!used) return "Lookups pause at the daily and monthly limits. Those can't be unlimited.";
+  const usedUp =
+    used.capped === "month"
+      ? "Monthly limit reached. New lookups wait until next month."
+      : used.capped === "day"
+        ? "Daily limit reached. New lookups wait until tomorrow."
+        : "";
+  const counts = `${used.dayCount} of ${used.dayLimit} today · ${used.monthCount} of ${used.monthLimit} this month.`;
+  const rest = "A drive already saved is still used. Resets at midnight Pacific time. The highest is " +
+    `${used.maxDaily} a day and ${used.maxMonthly} a month.`;
+  return [counts, usedUp, rest].filter(Boolean).join(" ");
 }
 
 /** A switch (checkbox) that runs `changed` when flipped. */

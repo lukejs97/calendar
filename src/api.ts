@@ -414,6 +414,10 @@ export interface Preferences {
   timeToLeave: boolean;
   /** Default starting address for leave-by times. Empty means none. */
   leaveFrom: string;
+  /** Routes attempts allowed per day. Never unlimited. */
+  routesDailyLimit: number;
+  /** Routes attempts allowed per month. Never unlimited. */
+  routesMonthlyLimit: number;
   appleCalendar: boolean;
   appleReminders: boolean;
   /** Apple calendars and reminder lists shown or left out, where chosen. */
@@ -429,7 +433,7 @@ export interface LeaveQuery {
 }
 
 /** Why a leave-by time isn't shown. `ok` is the one that has a time. */
-export type LeaveStatus = "ok" | "noKey" | "noOrigin" | "notPhysical" | "tooFar" | "past" | "unavailable";
+export type LeaveStatus = "ok" | "noKey" | "noOrigin" | "notPhysical" | "tooFar" | "past" | "unavailable" | "limited";
 
 /** A drive to one event. Mirrors `LeaveEstimate` in lib.rs. */
 export interface LeaveEstimate {
@@ -451,6 +455,20 @@ export interface RoutesKeyStatus {
 /** Drives for these events. A missing key or address is a status, not an error. */
 export const leaveTimes = (events: LeaveQuery[]) => invoke<LeaveEstimate[]>("leave_times", { events });
 export const routesKeyStatus = () => invoke<RoutesKeyStatus>("routes_key_status");
+
+/** Routes attempts used today and this month. Mirrors `UsageSnapshot` in leave.rs. */
+export interface RoutesUsage {
+  dayCount: number;
+  dayLimit: number;
+  monthCount: number;
+  monthLimit: number;
+  /** "none", "day", or "month". */
+  capped: "none" | "day" | "month";
+  maxDaily: number;
+  maxMonthly: number;
+}
+
+export const routesUsage = () => invoke<RoutesUsage>("routes_usage");
 /** Saves a Routes API key, or clears the saved one when `key` is empty. */
 export const setRoutesKey = (key: string) => invoke<void>("set_routes_key", { key });
 
