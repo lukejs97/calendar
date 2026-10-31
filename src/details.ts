@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
+import { mapLink } from "./maps";
 import { describeTimes, itemEnd, itemStart } from "./time";
 
 const RESPONSES: Record<string, string> = {
@@ -54,11 +55,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   if (item.location) {
     const place = el("span", undefined, item.location);
     const map = linkButton(isWebLink(item.location) ? "Open" : "Map", () =>
-      openUrl(
-        isWebLink(item.location!)
-          ? item.location!
-          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location!)}`,
-      ),
+      openUrl(isWebLink(item.location!) ? item.location! : mapLink(item.location!)),
     );
     const where = el("span");
     where.append(place, " ", map);
