@@ -36,6 +36,8 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 /// Lets the app add events. Accounts added before the app asked for it don't
 /// have it until they're added again.
 const EVENTS_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events";
+/// Older grants of the whole Calendar API. It includes adding and deleting events.
+const CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 /// Lets the Contacts window read and change your Google Contacts. Accounts
 /// added before it asked for this don't have it until they're added again.
 const CONTACTS_SCOPE: &str = "https://www.googleapis.com/auth/contacts";
@@ -111,7 +113,8 @@ struct TokenResponse {
     access_token: String,
     expires_in: u64,
     refresh_token: Option<String>,
-    /// The permissions granted, separated by spaces.
+    /// The permissions granted, separated by spaces. Absent when a refresh
+    /// didn't change them (RFC 6749): that's not "no permissions".
     #[serde(default)]
     scope: String,
 }
@@ -134,18 +137,20 @@ impl From<TokenError> for AppError {
 struct AccessToken {
     value: String,
     expires_at: Instant,
-    can_edit_events: bool,
-    can_use_contacts: bool,
+    scopes: Vec<String>,
 }
 
 impl AccessToken {
-    fn from_response(tokens: &TokenResponse) -> Self {
-        AccessToken {
-            value: tokens.access_token.clone(),
-            expires_at: Instant::now() + Duration::from_secs(tokens.expires_in),
-            can_edit_events: tokens.scope.split(' ').any(|scope| scope == EVENTS_SCOPE),
-            can_use_contacts: tokens.scope.split(' ').any(|scope| scope == CONTACTS_SCOPE),
-        }
+    fn new(value: String, expires_in: u64, scopes: Vec<String>) -> Self {
+        AccessToken { value, expires_at: Instant::now() + Duration::from_secs(expires_in), scopes }
+    }
+
+    fn can_edit_events(&self) -> bool {
+        has_scope(&self.scopes, EVENTS_SCOPE)
+    }
+
+    fn can_use_contacts(&self) -> bool {
+        has_scope(&self.scopes, CONTACTS_SCOPE)
     }
 }
 
@@ -155,6 +160,34 @@ impl AccessToken {
 struct Account {
     email: String,
     refresh_token: String,
+    /// What this account granted. Kept because a later refresh may omit `scope`.
+    #[serde(default)]
+    scopes: Vec<String>,
+}
+
+/// The scope strings in a token response (spaces, or the commas and pluses a
+/// redirect sometimes uses).
+fn parse_scopes(scope: &str) -> Vec<String> {
+    scope
+        .split(|c: char| c.is_whitespace() || c == ',' || c == '+')
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Scopes this access token carries. When the response leaves `scope` out,
+/// the ones saved with the account still apply.
+fn scopes_for(response_scope: &str, saved: &[String]) -> Vec<String> {
+    let granted = parse_scopes(response_scope);
+    if granted.is_empty() { saved.to_vec() } else { granted }
+}
+
+/// Whether `scopes` includes `scope`. The whole Calendar scope counts as
+/// permission to edit events.
+fn has_scope(scopes: &[String], scope: &str) -> bool {
+    scopes.iter().any(|granted| granted == scope)
+        || (scope == EVENTS_SCOPE && scopes.iter().any(|granted| granted == CALENDAR_SCOPE))
 }
 
 fn read_accounts() -> Result<Vec<Account>> {
@@ -237,9 +270,17 @@ impl GoogleAuth {
             .ok_or(AppError::NotSignedIn)?;
         match self.refresh(&account.refresh_token).await? {
             Some(tokens) => {
-                let token = AccessToken::from_response(&tokens);
+                let scopes = self.granted_scopes(&tokens, &account.scopes).await;
+                let token = AccessToken::new(tokens.access_token, tokens.expires_in, scopes.clone());
                 let value = token.value.clone();
                 cached.insert(email.to_string(), token);
+                drop(cached);
+                // The keychain lock is never taken while `access_tokens` is held.
+                if scopes != account.scopes
+                    && let Err(e) = self.remember_scopes(email, &scopes).await
+                {
+                    eprintln!("Couldn't save Google permissions: {e}");
+                }
                 Ok(value)
             }
             // Forget the account so the UI asks to add it again.
@@ -256,14 +297,66 @@ impl GoogleAuth {
     pub async fn can_edit_events(&self, email: &str) -> Result<bool> {
         self.access_token(email).await?;
         let cached = self.access_tokens.lock().await;
-        Ok(cached.get(email).is_some_and(|token| token.can_edit_events))
+        Ok(cached.get(email).is_some_and(|token| token.can_edit_events()))
     }
 
     /// Whether `email`'s account has allowed the app to use its contacts.
     pub async fn can_use_contacts(&self, email: &str) -> Result<bool> {
         self.access_token(email).await?;
         let cached = self.access_tokens.lock().await;
-        Ok(cached.get(email).is_some_and(|token| token.can_use_contacts))
+        Ok(cached.get(email).is_some_and(|token| token.can_use_contacts()))
+    }
+
+    /// Scopes on `tokens`. A refresh that omits `scope` keeps `saved`; if
+    /// nothing was saved yet (an account from before scopes were kept), ask
+    /// Google what this access token can do.
+    async fn granted_scopes(&self, tokens: &TokenResponse, saved: &[String]) -> Vec<String> {
+        let scopes = scopes_for(&tokens.scope, saved);
+        if !scopes.is_empty() {
+            return scopes;
+        }
+        self.scopes_from_tokeninfo(&tokens.access_token).await
+    }
+
+    /// Writes `scopes` onto `email`'s saved account when they aren't there yet.
+    async fn remember_scopes(&self, email: &str, scopes: &[String]) -> Result<()> {
+        if scopes.is_empty() {
+            return Ok(());
+        }
+        let _store = self.store.lock().await;
+        let mut accounts = read_accounts()?;
+        let Some(account) = accounts.iter_mut().find(|account| account.email == email) else {
+            return Ok(());
+        };
+        if account.scopes == scopes {
+            return Ok(());
+        }
+        account.scopes = scopes.to_vec();
+        write_accounts(&accounts)
+    }
+
+    /// What `access_token` was granted, from Google's tokeninfo. Empty if
+    /// that can't be reached: the calendar still loads, and the next refresh
+    /// tries again.
+    async fn scopes_from_tokeninfo(&self, access_token: &str) -> Vec<String> {
+        #[derive(Deserialize)]
+        struct Info {
+            #[serde(default)]
+            scope: String,
+        }
+        let Ok(response) = self
+            .http
+            .get("https://oauth2.googleapis.com/tokeninfo")
+            .query(&[("access_token", access_token)])
+            .send()
+            .await
+        else {
+            return Vec::new();
+        };
+        if !response.status().is_success() {
+            return Vec::new();
+        }
+        response.json::<Info>().await.ok().map(|info| parse_scopes(&info.scope)).unwrap_or_default()
     }
 
     /// Trades a refresh token for a new access token. `None` means Google no
@@ -291,12 +384,16 @@ impl GoogleAuth {
         };
         if let Some(tokens) = self.refresh(&refresh_token).await? {
             let email = calendar::primary_email(&self.http, &tokens.access_token).await?;
+            let scopes = self.granted_scopes(&tokens, &[]).await;
             let mut accounts = read_accounts()?;
             if !accounts.iter().any(|account| account.email == email) {
-                accounts.insert(0, Account { email: email.clone(), refresh_token });
+                accounts.insert(0, Account { email: email.clone(), refresh_token, scopes: scopes.clone() });
                 write_accounts(&accounts)?;
             }
-            self.access_tokens.lock().await.insert(email, AccessToken::from_response(&tokens));
+            self.access_tokens
+                .lock()
+                .await
+                .insert(email, AccessToken::new(tokens.access_token, tokens.expires_in, scopes));
         }
         secrets::delete(secrets::LEGACY_GOOGLE_REFRESH_TOKEN)
     }
@@ -379,17 +476,26 @@ impl GoogleAuth {
             .clone()
             .ok_or_else(|| AppError::Auth("Google didn't return a refresh token".into()))?;
         let email = calendar::primary_email(&self.http, &tokens.access_token).await?;
+        let saved = read_accounts()?
+            .into_iter()
+            .find(|account| account.email == email)
+            .map(|account| account.scopes)
+            .unwrap_or_default();
+        let scopes = self.granted_scopes(&tokens, &saved).await;
         {
             let _store = self.store.lock().await;
             let mut accounts = read_accounts()?;
-            let account = Account { email: email.clone(), refresh_token };
+            let account = Account { email: email.clone(), refresh_token, scopes: scopes.clone() };
             match accounts.iter_mut().find(|existing| existing.email == email) {
                 Some(existing) => *existing = account,
                 None => accounts.push(account),
             }
             write_accounts(&accounts)?;
         }
-        self.access_tokens.lock().await.insert(email.clone(), AccessToken::from_response(&tokens));
+        self.access_tokens
+            .lock()
+            .await
+            .insert(email.clone(), AccessToken::new(tokens.access_token, tokens.expires_in, scopes));
 
         // The browser has focus now; bring the app back to the front. (On iOS,
         // following the redirect already switched back to the app.)
@@ -451,4 +557,58 @@ fn random_urlsafe(num_bytes: usize) -> String {
     let mut bytes = vec![0u8; num_bytes];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn saved() -> Vec<String> {
+        vec![
+            "https://www.googleapis.com/auth/calendar.readonly".into(),
+            EVENTS_SCOPE.into(),
+            CONTACTS_SCOPE.into(),
+        ]
+    }
+
+    #[test]
+    fn a_refresh_that_omits_scope_keeps_the_grant() {
+        // Google may leave `scope` out when it hasn't changed. That used to
+        // look like "no permission", so Edit, Delete and Contacts disappeared
+        // after the first refresh (every launch).
+        let scopes = scopes_for("", &saved());
+        assert!(has_scope(&scopes, EVENTS_SCOPE));
+        assert!(has_scope(&scopes, CONTACTS_SCOPE));
+    }
+
+    #[test]
+    fn a_refresh_that_names_scopes_replaces_what_was_saved() {
+        let scopes = scopes_for(CONTACTS_SCOPE, &saved());
+        assert!(!has_scope(&scopes, EVENTS_SCOPE));
+        assert!(has_scope(&scopes, CONTACTS_SCOPE));
+    }
+
+    #[test]
+    fn scopes_split_on_spaces_commas_and_pluses() {
+        let scopes = parse_scopes(&format!(
+            "{EVENTS_SCOPE}+{CONTACTS_SCOPE}, https://www.googleapis.com/auth/calendar.readonly"
+        ));
+        assert!(has_scope(&scopes, EVENTS_SCOPE));
+        assert!(has_scope(&scopes, CONTACTS_SCOPE));
+        assert_eq!(scopes.len(), 3);
+    }
+
+    #[test]
+    fn the_full_calendar_scope_may_edit_events() {
+        let scopes = vec![CALENDAR_SCOPE.into()];
+        assert!(has_scope(&scopes, EVENTS_SCOPE));
+        assert!(!has_scope(&scopes, CONTACTS_SCOPE));
+    }
+
+    #[test]
+    fn an_account_saved_before_scopes_still_loads() {
+        let accounts: Vec<Account> = serde_json::from_str(r#"[{"email":"a@b.c","refreshToken":"token"}]"#).unwrap();
+        assert!(accounts[0].scopes.is_empty());
+        assert_eq!(accounts[0].email, "a@b.c");
+    }
 }
