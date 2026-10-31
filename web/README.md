@@ -51,6 +51,7 @@ Copy the client ID and secret.
    GOOGLE_CLIENT_ID=…
    GOOGLE_CLIENT_SECRET=…
    TOKEN_KEY=…   # 32 random bytes, base64
+   MINUTEMAN_ROUTES_API_KEY=…   # optional; leave-by traffic. Never commit this file.
    ```
 
    Make a TOKEN_KEY with
@@ -68,7 +69,17 @@ Copy the client ID and secret.
    npx wrangler secret put GOOGLE_CLIENT_ID
    npx wrangler secret put GOOGLE_CLIENT_SECRET
    npx wrangler secret put TOKEN_KEY
+   npx wrangler secret put MINUTEMAN_ROUTES_API_KEY
    ```
+
+   The Routes key is optional. Without it, Settings → Leave from still saves
+   a default address, and leave-by times stay hidden. With it, the Worker
+   asks Google for traffic and counts every attempt against the same free-tier
+   cap as the desktop app (80 a day and 2,500 a month unless you lower them).
+   Also set a per-day quota of 160 on the Routes API in Google Cloud so the
+   desktop app and the website together cannot be billed
+   ([docs/google-cloud-setup.md](../docs/google-cloud-setup.md)). The key is
+   never sent to the browser.
 
    Use a **new** TOKEN_KEY for the live site, not the one in `.dev.vars`.
 4. `npm run deploy`. It prints the site's address,

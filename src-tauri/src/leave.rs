@@ -47,6 +47,7 @@ const DEVICE_ORIGIN: &str = "@device";
 /// Free successful Compute Routes Pro requests per month (traffic-aware).
 /// Google Maps Platform pricing list, checked 2026-10-31. The cap resets at
 /// midnight Pacific time on the first of the month.
+/// The website uses the same numbers in src/routes-budget.ts.
 pub const FREE_ROUTES_PER_MONTH: u32 = 5_000;
 /// Default lookups per Pacific day. 80 × 31 = 2,480, under half the free cap,
 /// and each lookup may be two requests (a guess and one refinement).

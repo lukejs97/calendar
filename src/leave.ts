@@ -1,7 +1,6 @@
-// Leave-by times on events. The drive is worked out in Rust (leave.rs); this
-// only asks for it and writes the answer onto the event. A missing key,
-// address, or place stays quiet on the calendar and is explained in details.
-import { isTauri } from "@tauri-apps/api/core";
+// Leave-by times on events. The drive is worked out off the page: in the app
+// (leave.rs) or, on the website, by the Worker. A missing key, address, or
+// place stays quiet on the calendar and is explained in details.
 import { leaveTimes, type AgendaItem, type LeaveEstimate, type LeaveStatus } from "./api";
 import { el } from "./dom";
 import { itemStart } from "./time";
@@ -19,8 +18,6 @@ let running = false;
 let again = false;
 let refreshTimer = 0;
 
-const canAsk = () => isTauri() || import.meta.env.DEV;
-
 function keyOf(item: AgendaItem): string {
   return `${item.id}|${item.start}`;
 }
@@ -32,10 +29,10 @@ function wantsLeave(item: AgendaItem): boolean {
 
 /**
  * An element that fills in with "Leave by 8:40 AM" once the drive is known.
- * `null` when this event isn't one you'd travel to, or this build doesn't ask.
+ * `null` when this event isn't one you'd travel to.
  */
 export function leaveLabel(item: AgendaItem, className: string): HTMLElement | null {
-  if (!canAsk() || !wantsLeave(item)) return null;
+  if (!wantsLeave(item)) return null;
   const node = el("span", className);
   node.hidden = true;
   const key = keyOf(item);
@@ -49,7 +46,7 @@ export function leaveLabel(item: AgendaItem, className: string): HTMLElement | n
 
 /** Asks again for whatever is on screen, e.g. after the address or key changes. */
 export function refreshLeaveTimes(): void {
-  if (canAsk()) void flush();
+  void flush();
 }
 
 function schedule(): void {
@@ -161,7 +158,7 @@ export function leaveHint(status: LeaveStatus | undefined): string | null {
 
 /** The details line for one event: the time, or a short reason, or nothing. */
 export async function leaveDetail(item: AgendaItem): Promise<string | null> {
-  if (!canAsk() || !wantsLeave(item)) return null;
+  if (!wantsLeave(item)) return null;
   try {
     const [estimate] = await leaveTimes([
       { id: item.id, start: item.start, location: item.location ?? "", leaveFrom: item.leaveFrom ?? null },

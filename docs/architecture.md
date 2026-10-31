@@ -114,7 +114,10 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   at a departure time, then once more if that drive would change when you
   leave. Every attempt, including a failure, counts toward a daily and a
   monthly cap (`routes-usage.json`, reset at midnight Pacific time) so a
-  month of traffic-aware requests stays inside the free 5,000. At the cap,
+  month of traffic-aware requests stays inside the free 5,000. The website
+  uses the same cap: the address is saved on the Worker, and lookups run
+  there only when `MINUTEMAN_ROUTES_API_KEY` is a Cloudflare secret (it never
+  reaches the browser). At the cap,
   nothing new is asked; a drive already saved is still used, and a leave
   alert without one waits. Answers are cached, and refreshed sooner as the
   event gets closer

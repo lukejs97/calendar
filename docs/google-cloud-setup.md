@@ -287,3 +287,36 @@ The Quotas page is not the bill. Check **Billing** if you want to confirm
 nothing was charged. Successful requests and server errors count against the
 Cloud quota; a rejected API key does not. Minuteman's own counter counts
 those too.
+
+The desktop app and the website each keep their own count. Set the Cloud
+quota above anyway: it is the one limit that covers both, so the two counts
+cannot add up past the free tier.
+
+### Leave-by on the website
+
+The phone site can save a default **Leave from** address (Settings → Leave
+from) without a key. Live traffic does not run until the Worker has the
+Routes key. The key is a Cloudflare secret. It is not in the git repo, and
+the page never receives it.
+
+1. Create the API key as in the steps above, restricted to the Routes API.
+2. Set the per-day Cloud quota to **160** (the section above). That cap is
+   shared by the desktop app and the website.
+3. From the `web` folder, with Wrangler logged in:
+
+   ```
+   npx wrangler secret put MINUTEMAN_ROUTES_API_KEY
+   ```
+
+   Paste the key when asked. Wrangler stores it on the Worker. A deploy is
+   not required for the secret to take effect. To try it on your computer
+   first, add the same line to `web/.dev.vars` (that file is git-ignored).
+4. Open the site, Settings → Leave from, and save an address. The screen
+   should say live traffic is on, and an event at a street address should
+   show **Leave by**.
+
+Without the secret, Settings still saves the address and says traffic is
+off. The event form says leave-by times stay hidden. Lookups, once the
+secret is set, use the same 80-per-day and 2,500-per-month defaults, and
+the same ceilings (160 and 4,000). They count every attempt, including
+failures, in the Worker's store, and reset at midnight Pacific time.
