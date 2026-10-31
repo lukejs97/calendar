@@ -19,6 +19,7 @@ import {
   type TaskDraft,
   type TaskDue,
 } from "./api";
+import { AlertEditor } from "./alert-editor";
 import { el } from "./dom";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
@@ -53,19 +54,6 @@ const REPEAT_OPTIONS: [Repeat | "", string][] = [
   ["biweekly", "Every 2 weeks"],
   ["monthly", "Every month"],
   ["yearly", "Every year"],
-];
-
-const ALERT_OPTIONS: [string, string][] = [
-  ["default", "Calendar's default"],
-  ["none", "None"],
-  ["0", "At start"],
-  ["5", "5 minutes before"],
-  ["10", "10 minutes before"],
-  ["15", "15 minutes before"],
-  ["30", "30 minutes before"],
-  ["60", "1 hour before"],
-  ["120", "2 hours before"],
-  ["1440", "1 day before"],
 ];
 
 const PRIORITY_OPTIONS: [string, string][] = [
@@ -169,7 +157,10 @@ class Form {
     ["one", "This event only"],
     ["all", "All events in the series"],
   ]);
-  private alert = select(ALERT_OPTIONS);
+  private alerts = new AlertEditor(
+    () => this.touched.add("alert"),
+    () => this.startValue(),
+  );
   private guests = input("text", "Email addresses, separated by commas");
   private eventNotes = el("textarea", "text-input");
   private calendar = el("select", "text-input");
@@ -299,7 +290,8 @@ class Form {
     this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
     this.row(grid, "Where", this.location);
     this.row(grid, "Repeat", this.repeat);
-    this.row(grid, "Alert", this.alert);
+    const alertRow = this.row(grid, "Alert", this.alerts.root);
+    alertRow.previousElementSibling?.classList.add("alert-label");
     this.row(grid, "Guests", this.guests);
     this.row(grid, "Notes", this.eventNotes);
     this.row(grid, "Calendar", this.calendar, this.calendarNotes);
@@ -310,7 +302,6 @@ class Form {
     this.track("floating", this.floating);
     this.track("location", this.location);
     this.track("repeat", this.repeat);
-    this.track("alert", this.alert);
     this.track("guests", this.guests);
     this.track("notes", this.eventNotes);
     this.track("calendar", this.calendar);
@@ -456,7 +447,7 @@ class Form {
       this.setWhen(start, new Date(start.getTime() + 60 * 60 * 1000), false);
     }
     this.fillDueFromAt();
-    this.alert.value = "default";
+    this.alerts.setDefault();
     this.priority.value = "4";
     this.showTaskRepeat();
   }
@@ -487,10 +478,7 @@ class Form {
       .filter((a) => !a.isSelf && !a.organizer && a.email)
       .map((a) => a.email)
       .join(", ");
-    const minutes = item.reminders[0];
-    const known = ALERT_OPTIONS.some(([value]) => value === String(minutes));
-    if (minutes !== undefined && !known) this.alert.append(option(String(minutes), `${minutes} minutes before`));
-    this.alert.value = minutes === undefined ? "default" : String(minutes);
+    this.alerts.setFromItem(item);
     if (this.inSeries()) {
       // "keep" leaves the series' rule be; it's shown in words once fetched.
       // "end" makes this the last one (the ones before it stay).
@@ -521,13 +509,7 @@ class Form {
       if (!this.touched.has("when") && parsed.dated) this.setWhen(parsed.start, parsed.end, parsed.allDay);
       if (!this.touched.has("location")) this.location.value = parsed.location ?? "";
       if (!this.touched.has("repeat")) this.repeat.value = parsed.repeat ?? "";
-      if (!this.touched.has("alert")) {
-        const value = parsed.alert === null ? "default" : String(parsed.alert);
-        if (!ALERT_OPTIONS.some(([v]) => v === value) && ![...this.alert.options].some((o) => o.value === value)) {
-          this.alert.append(option(value, `${value} minutes before`));
-        }
-        this.alert.value = value;
-      }
+      if (!this.touched.has("alert")) this.alerts.setFromSentence(parsed.alert);
       if (!this.touched.has("guests")) this.guests.value = parsed.guests.join(", ");
     } else {
       const parsed = text.trim() ? parseTask(text, now) : null;
@@ -649,6 +631,8 @@ class Form {
     const end = this.endValue();
     if (!start || !end) throw new Error("Choose when it starts and ends.");
     if (end < start || (this.allDay.checked && end <= start)) throw new Error("It must end after it starts.");
+    // Checked here so a half-filled notification is reported like the other fields.
+    if (!this.item || this.touched.has("alert") || this.alerts.diverged()) this.alerts.toDraft();
     return { start, allDay: this.allDay.checked };
   }
 
@@ -678,13 +662,7 @@ class Form {
     }
 
     let alerts: Alerts | null = null;
-    if (editing("alert")) {
-      const value = this.alert.value;
-      alerts =
-        value === "default"
-          ? { kind: "default" }
-          : { kind: "custom", minutes: value === "none" ? [] : [Number(value)] };
-    }
+    if (editing("alert") || this.alerts.diverged()) alerts = this.alerts.toDraft();
 
     let guests: EventDraft["guests"] = null;
     if (editing("guests")) {

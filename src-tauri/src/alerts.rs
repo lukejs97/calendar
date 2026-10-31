@@ -1,15 +1,16 @@
 //! Desktop only: pop-up alerts before events start, at the reminder times set
-//! on each event in Google Calendar (or its calendar's defaults). They come
-//! from this side, not the web page, so they keep coming while the app sits in
-//! the menu bar with its window closed. The same loop keeps the next event's
-//! name beside the menu bar icon up to date.
+//! on each event in Google Calendar (or its calendar's defaults), and at any
+//! exact time Minuteman stored on the event. They come from this side, not the
+//! web page, so they keep coming while the app sits in the menu bar with its
+//! window closed. The same loop keeps the next event's name beside the menu
+//! bar icon up to date.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Local, TimeDelta};
+use chrono::{DateTime, Local, NaiveDate, TimeDelta};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Notify;
@@ -137,12 +138,19 @@ async fn time_to_leave(
 ) {
 }
 
-/// Today's and tomorrow's items: fetched if possible (and saved for offline
-/// use), otherwise as saved last time. `None` if neither works, e.g. signed out.
+/// How far ahead to load. Google's longest reminder is 4 weeks, and an exact
+/// time can fall well before the event, so the loop has to be holding the
+/// event when the alert comes due. 120 days covers a quarter: an exact alert
+/// on an event further out than that isn't seen until the event itself is.
+const LOOK_AHEAD_DAYS: i64 = 120;
+
+/// Today's items and the ones far enough ahead that a reminder can come due
+/// now: fetched if possible (and saved for offline use), otherwise as saved
+/// last time. `None` if neither works, e.g. signed out.
 async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
     let (state, cache) = (app.state::<AppState>(), app.state::<AgendaCache>());
     let today = Local::now().date_naive();
-    let to = today + TimeDelta::days(2);
+    let to = today + TimeDelta::days(LOOK_AHEAD_DAYS);
     match agenda::load(&state.http, &state.google_auth, today, to).await {
         Ok(agenda) => {
             cache.store(today, to, &agenda.loaded, &agenda.items);
@@ -157,20 +165,42 @@ async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
 fn due(items: &[AgendaItem], from: DateTime<Local>, now: DateTime<Local>) -> Vec<(String, String, String)> {
     let mut alerts = Vec::new();
     for item in items {
-        if item.all_day || item.kind != ItemKind::Event {
+        if item.kind != ItemKind::Event {
             continue;
         }
-        let Ok(start) = DateTime::parse_from_rfc3339(&item.start) else { continue };
-        let start = start.with_timezone(&Local);
+        let Some(start) = event_start(item) else { continue };
         for &minutes in &item.reminders {
-            let at = start - TimeDelta::minutes(minutes.into());
+            let Some(at) = start.checked_sub_signed(TimeDelta::minutes(i64::from(minutes))) else { continue };
             if at > from && at <= now {
                 let key = format!("{}|{}|{minutes}", item.id, item.start);
                 alerts.push((key, item.title.clone(), alert_text(item, start, minutes)));
             }
         }
+        for at_str in &item.alert_at {
+            let Ok(at) = DateTime::parse_from_rfc3339(at_str) else { continue };
+            let at = at.with_timezone(&Local);
+            if at > from && at <= now {
+                // One exact time on a repeating series is the same instant for
+                // every occurrence, so it should notify once.
+                let owner = item.series_id.as_deref().unwrap_or(&item.id);
+                let key = format!("at|{owner}|{at_str}");
+                let lead = (start - at).num_minutes();
+                let minutes = if lead < 0 { 0 } else { lead as u32 };
+                alerts.push((key, item.title.clone(), alert_text(item, start, minutes)));
+            }
+        }
     }
     alerts
+}
+
+/// When an event starts. An all-day event starts at local midnight on its first day.
+fn event_start(item: &AgendaItem) -> Option<DateTime<Local>> {
+    if item.all_day {
+        let date = NaiveDate::parse_from_str(&item.start, "%Y-%m-%d").ok()?;
+        Some(crate::agenda::local_midnight(date))
+    } else {
+        Some(DateTime::parse_from_rfc3339(&item.start).ok()?.with_timezone(&Local))
+    }
 }
 
 /// Beside the menu bar icon: what's next ("Standup in 12 min", "Lunch at
@@ -233,19 +263,29 @@ fn short(title: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
-/// "In 10 min · 2:00 PM · Room 4", or "Now · 2:00 PM".
+/// "In 10 min · 2:00 PM · Room 4", or "Now · 2:00 PM". An all-day event is
+/// named by its day ("In 1 day · Fri, Nov 6") rather than midnight.
 fn alert_text(item: &AgendaItem, start: DateTime<Local>, minutes: u32) -> String {
     let when = match minutes {
         0 => "Now".to_string(),
         1..60 => format!("In {minutes} min"),
         _ => format!("In {}", format_hours(minutes)),
     };
-    let time = start.format("%-I:%M %p").to_string();
+    let time = if item.all_day {
+        start.format("%a, %b %-d").to_string()
+    } else {
+        start.format("%-I:%M %p").to_string()
+    };
     [Some(when), Some(time), item.location.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
 fn format_hours(minutes: u32) -> String {
+    const WEEK: u32 = 7 * 24 * 60;
     const DAY: u32 = 24 * 60;
+    if minutes >= WEEK && minutes.is_multiple_of(WEEK) {
+        let weeks = minutes / WEEK;
+        return if weeks == 1 { "1 week".into() } else { format!("{weeks} weeks") };
+    }
     if minutes.is_multiple_of(DAY) {
         return if minutes == DAY { "1 day".into() } else { format!("{} days", minutes / DAY) };
     }
@@ -284,6 +324,8 @@ mod tests {
             attendees: Vec::new(),
             conference_url: None,
             reminders,
+            email_reminders: Vec::new(),
+            alert_at: Vec::new(),
             floating: false,
             time_zone: None,
         }
@@ -338,5 +380,43 @@ mod tests {
         assert_eq!(format_hours(90), "1 h 30 min");
         assert_eq!(format_hours(24 * 60), "1 day");
         assert_eq!(format_hours(2 * 24 * 60), "2 days");
+        assert_eq!(format_hours(7 * 24 * 60), "1 week");
+        assert_eq!(format_hours(2 * 7 * 24 * 60), "2 weeks");
+    }
+
+    #[test]
+    fn several_alerts_and_an_exact_time_each_fire_once() {
+        let now = Local::now();
+        let start = now;
+        let exact = (now - TimeDelta::seconds(10)).to_rfc3339();
+        let mut item = event(start, vec![0, 1]);
+        item.alert_at = vec![exact.clone()];
+        let alerts = due(std::slice::from_ref(&item), now - TimeDelta::seconds(90), now);
+        assert_eq!(alerts.len(), 3);
+        // The same exact time on two occurrences of one series is one alert.
+        let other = AgendaItem { id: "google:cal:2".into(), series_id: Some("series".into()), ..item.clone() };
+        item.series_id = Some("series".into());
+        let both = due(&[item, other], now - TimeDelta::seconds(90), now);
+        let exact_keys: Vec<_> = both.iter().filter(|(key, _, _)| key.starts_with("at|")).map(|(key, _, _)| key.clone()).collect();
+        assert_eq!(exact_keys.len(), 2);
+        assert_eq!(exact_keys[0], exact_keys[1]);
+        // Ten minutes ago is outside this window.
+        let mut late = event(now, vec![]);
+        late.alert_at = vec![(now - TimeDelta::minutes(10)).to_rfc3339()];
+        assert!(due(&[late], now - TimeDelta::seconds(30), now).is_empty());
+    }
+
+    #[test]
+    fn an_all_day_event_alerts_at_its_midnight() {
+        let midnight = crate::agenda::local_midnight(Local::now().date_naive());
+        let now = midnight + TimeDelta::seconds(20);
+        let mut item = event(midnight, vec![0]);
+        item.all_day = true;
+        item.start = midnight.date_naive().to_string();
+        item.location = None;
+        let alerts = due(std::slice::from_ref(&item), midnight - TimeDelta::seconds(1), now);
+        assert_eq!(alerts.len(), 1);
+        assert!(alerts[0].2.starts_with("Now · "));
+        assert!(!alerts[0].2.contains("AM") && !alerts[0].2.contains("PM"));
     }
 }

@@ -87,6 +87,23 @@ struct ExtendedProperties {
 /// has no such "floating" events, so its own apps still show it fixed.
 pub const FLOATING: &str = "minutemanFloating";
 
+/// Exact-time alerts, and any reminder Google's API can't store, kept on the
+/// event as a private property (a JSON string). Google Calendar reminders are
+/// only "minutes before the start", at most 5 of them, and at most 4 weeks
+/// out, so an alert at a chosen date and time has nowhere to go there.
+///
+/// These are not Google reminder overrides: Google's own apps neither show
+/// nor send them. Minuteman reads them back with the event and fires them
+/// itself. They live on the event (rather than in a file on one device) so
+/// the website and the desktop app see the same list, and the desktop — where
+/// notifications actually run — can fire an alert that was added in either.
+pub const LOCAL_ALERTS: &str = "minutemanAlerts";
+
+/// Google Calendar allows at most this many reminder overrides on an event.
+const GOOGLE_MAX_OVERRIDES: usize = 5;
+/// Google Calendar's longest reminder, in minutes (4 weeks).
+const GOOGLE_MAX_MINUTES: u32 = 40_320;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConferenceData {
@@ -343,13 +360,55 @@ pub struct GuestDraft {
     pub response: Option<String>,
 }
 
-/// An event's alerts: its calendar's defaults, or its own.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind", content = "minutes")]
+/// "popup" (a notification) or "email" (Google sends it).
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertMethod {
+    Popup,
+    Email,
+}
+
+impl AlertMethod {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Popup => "popup",
+            Self::Email => "email",
+        }
+    }
+
+    fn popup() -> Self {
+        Self::Popup
+    }
+}
+
+/// One notification: a lead time before the start, or an exact instant.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum AlertSpec {
+    Relative {
+        minutes: u32,
+        #[serde(default = "AlertMethod::popup")]
+        method: AlertMethod,
+    },
+    /// RFC 3339. Not a Google Calendar reminder.
+    Absolute { at: String },
+}
+
+/// An event's alerts: its calendar's defaults, or its own list (empty for none).
+///
+/// `minutes` is the older shape (popup minutes only). A custom list in `alerts`
+/// wins when it isn't empty; otherwise `minutes` is used, so events saved
+/// before alerts could be a list still sync.
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Alerts {
     Default,
-    /// Minutes before the start; empty for no alerts.
-    Custom(Vec<u32>),
+    Custom {
+        #[serde(default)]
+        minutes: Vec<u32>,
+        #[serde(default)]
+        alerts: Vec<AlertSpec>,
+    },
 }
 
 /// An event as the New or Edit form filled it in.
@@ -389,21 +448,21 @@ impl EventDraft {
             "location": text(&self.location),
             "description": text(&self.description),
         });
-        match &self.alerts {
-            Some(Alerts::Default) => body["reminders"] = json!({ "useDefault": true }),
-            Some(Alerts::Custom(minutes)) => {
-                body["reminders"] = json!({
-                    "useDefault": false,
-                    "overrides": minutes.iter().map(|m| json!({ "method": "popup", "minutes": m })).collect::<Vec<_>>(),
-                })
-            }
-            None => {}
+        let mut private = serde_json::Map::new();
+        if let Some(floating) = self.floating {
+            private.insert(FLOATING.to_string(), json!(floating.to_string()));
+        }
+        if let Some(alerts) = &self.alerts {
+            let (reminders, stored) = split_alerts(alerts)?;
+            body["reminders"] = reminders;
+            // An empty string asks an update to remove any alerts kept earlier.
+            private.insert(LOCAL_ALERTS.to_string(), json!(stored.to_property()));
+        }
+        if !private.is_empty() {
+            body["extendedProperties"] = json!({ "private": private });
         }
         if let Some(rules) = &self.recurrence {
             body["recurrence"] = json!(rules);
-        }
-        if let Some(floating) = self.floating {
-            body["extendedProperties"] = json!({ "private": { FLOATING: floating.to_string() } });
         }
         if let Some(guests) = &self.guests {
             body["attendees"] = guests
@@ -420,6 +479,98 @@ impl EventDraft {
     fn has_guests(&self) -> bool {
         self.guests.as_ref().is_some_and(|g| !g.is_empty())
     }
+}
+
+/// Alerts Minuteman keeps on the event because Google Calendar's reminders
+/// can't: an exact instant, a sixth override, or a lead longer than 4 weeks.
+#[derive(serde::Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+struct StoredAlerts {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    at: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    popup: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    email: Vec<u32>,
+}
+
+impl StoredAlerts {
+    fn is_empty(&self) -> bool {
+        self.at.is_empty() && self.popup.is_empty() && self.email.is_empty()
+    }
+
+    /// JSON for the private property, or "" when there's nothing to keep
+    /// (which an update reads as "remove the property").
+    fn to_property(&self) -> String {
+        if self.is_empty() { String::new() } else { serde_json::to_string(self).unwrap_or_default() }
+    }
+}
+
+fn parse_stored(value: Option<&str>) -> StoredAlerts {
+    let Some(value) = value.filter(|s| !s.is_empty()) else { return StoredAlerts::default() };
+    serde_json::from_str(value).unwrap_or_default()
+}
+
+/// The popup minutes, email minutes, and exact instants to show and fire.
+/// Calendar defaults stand in when the event doesn't set its own reminders.
+/// Anything kept in `local` is added on, without repeating a minute already there.
+fn collect_reminders(event_reminders: Option<&Reminders>, defaults: &[Reminder], local: &StoredAlerts) -> (Vec<u32>, Vec<u32>, Vec<String>) {
+    let source = match event_reminders {
+        Some(reminders) if !reminders.use_default => &reminders.overrides,
+        _ => defaults,
+    };
+    let mut popup = minutes_of(source, "popup");
+    let mut email = minutes_of(source, "email");
+    append_unique(&mut popup, &local.popup);
+    append_unique(&mut email, &local.email);
+    (popup, email, local.at.clone())
+}
+
+fn minutes_of(reminders: &[Reminder], method: &str) -> Vec<u32> {
+    reminders.iter().filter(|r| r.method.as_deref() == Some(method)).filter_map(|r| r.minutes).collect()
+}
+
+fn append_unique(base: &mut Vec<u32>, extra: &[u32]) {
+    for minutes in extra {
+        if !base.contains(minutes) {
+            base.push(*minutes);
+        }
+    }
+}
+
+/// Google's `reminders` object, and the alerts that don't fit in it.
+fn split_alerts(alerts: &Alerts) -> Result<(Value, StoredAlerts)> {
+    let Alerts::Custom { minutes, alerts } = alerts else {
+        return Ok((json!({ "useDefault": true }), StoredAlerts::default()));
+    };
+    // The newer list wins. An empty one with the old `minutes` field is an
+    // event saved before an event could have several kinds of alert.
+    let specs = if !alerts.is_empty() {
+        alerts.clone()
+    } else {
+        minutes.iter().map(|&minutes| AlertSpec::Relative { minutes, method: AlertMethod::Popup }).collect::<Vec<_>>()
+    };
+    let mut overrides = Vec::new();
+    let mut stored = StoredAlerts::default();
+    for spec in specs {
+        match spec {
+            AlertSpec::Absolute { at } => {
+                parse_time(&at)?;
+                stored.at.push(at);
+            }
+            AlertSpec::Relative { minutes, method } => {
+                let fits = minutes <= GOOGLE_MAX_MINUTES && overrides.len() < GOOGLE_MAX_OVERRIDES;
+                if fits {
+                    overrides.push(json!({ "method": method.as_str(), "minutes": minutes }));
+                } else {
+                    match method {
+                        AlertMethod::Popup => stored.popup.push(minutes),
+                        AlertMethod::Email => stored.email.push(minutes),
+                    }
+                }
+            }
+        }
+    }
+    Ok((json!({ "useDefault": false, "overrides": overrides }), stored))
 }
 
 /// `calendars/{calendar_id}/events[/{event_id}]`, with Google told whether to
@@ -440,7 +591,9 @@ fn events_url(calendar_id: &str, event_id: Option<&str>, notify_guests: bool) ->
 /// Adds an event to the calendar `calendar_id`, inviting its guests.
 pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str, draft: &EventDraft) -> Result<()> {
     let url = events_url(calendar_id, None, draft.has_guests());
-    let _created: Value = send(http.post(url).bearer_auth(token).json(&draft.to_json()?)).await?;
+    let mut body = draft.to_json()?;
+    drop_empty_private(&mut body);
+    let _created: Value = send(http.post(url).bearer_auth(token).json(&body)).await?;
     Ok(())
 }
 
@@ -455,7 +608,9 @@ pub async fn update_event(
     notify_guests: bool,
 ) -> Result<()> {
     let url = events_url(calendar_id, Some(event_id), notify_guests);
-    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&draft.to_json()?)).await?;
+    let mut body = draft.to_json()?;
+    merge_private(http, token, calendar_id, event_id, &mut body).await?;
+    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
     Ok(())
 }
 
@@ -483,7 +638,54 @@ pub async fn update_series(
         fields.insert("end".into(), end);
     }
     let url = events_url(calendar_id, Some(series_id), notify_guests);
+    merge_private(http, token, calendar_id, series_id, &mut body).await?;
     let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
+    Ok(())
+}
+
+/// A new event has nothing to clear: drop private keys whose value is empty
+/// rather than storing a blank one.
+fn drop_empty_private(body: &mut Value) {
+    let Some(obj) = body.as_object_mut() else { return };
+    let Some(private) = obj.get_mut("extendedProperties").and_then(|v| v.get_mut("private")).and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+    private.retain(|_, value| value.as_str() != Some(""));
+    if private.is_empty() {
+        obj.remove("extendedProperties");
+    }
+}
+
+/// Google replaces the whole private-property map when a patch includes one.
+/// Read what's there and lay our keys over it, so saving alerts doesn't wipe
+/// the floating flag (or the other way round). An empty string removes a key.
+async fn merge_private(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    body: &mut Value,
+) -> Result<()> {
+    let Some(ours) = body.pointer("/extendedProperties/private").and_then(|v| v.as_object()).cloned() else {
+        return Ok(());
+    };
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", event_id]);
+    url.query_pairs_mut().append_pair("fields", "extendedProperties/private");
+    let current: Value = get_json(http, token, url).await?;
+    let mut private = current
+        .pointer("/extendedProperties/private")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+    for (key, value) in ours {
+        if value.as_str() == Some("") {
+            private.remove(&key);
+        } else {
+            private.insert(key, value);
+        }
+    }
+    body["extendedProperties"] = json!({ "private": private });
     Ok(())
 }
 
@@ -737,14 +939,10 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         .or(event.hangout_link)
         .or_else(|| event.location.as_deref().and_then(find_meeting_link))
         .or_else(|| event.description.as_deref().and_then(find_meeting_link));
-    let reminders = if all_day {
-        Vec::new()
-    } else {
-        match &event.reminders {
-            Some(r) if !r.use_default => popup_minutes(&r.overrides),
-            _ => popup_minutes(&calendar.default_reminders),
-        }
-    };
+    let stored = parse_stored(event.extended_properties.as_ref().and_then(|p| p.private.get(LOCAL_ALERTS).map(String::as_str)));
+    // All-day events too: "1 day before" is a real Google reminder, measured
+    // back from midnight at the start of the event.
+    let (reminders, email_reminders, alert_at) = collect_reminders(event.reminders.as_ref(), &calendar.default_reminders, &stored);
     let organized_by_you = event.organizer.as_ref().is_none_or(|o| o.is_self);
     let attendees = event
         .attendees
@@ -772,6 +970,8 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         attendees,
         conference_url,
         reminders,
+        email_reminders,
+        alert_at,
         id: format!("google:{}:{}", calendar.id, event.id),
         source: Source::Google,
         kind: ItemKind::Event,
@@ -799,10 +999,6 @@ fn float_here(instant: &str, zone: &str) -> Option<String> {
         .earliest()
         .or_else(|| Local.from_local_datetime(&(clock + chrono::TimeDelta::hours(1))).earliest())?;
     Some(here.to_rfc3339())
-}
-
-fn popup_minutes(reminders: &[Reminder]) -> Vec<u32> {
-    reminders.iter().filter(|r| r.method.as_deref() == Some("popup")).filter_map(|r| r.minutes).collect()
 }
 
 /// A video-call link in an event's location or notes (e.g. Apple Calendar's).
@@ -932,6 +1128,123 @@ mod tests {
         assert_eq!(body["reminders"], json!({ "useDefault": true }));
         assert!(body.get("recurrence").is_none());
         assert!(body.get("attendees").is_none());
+    }
+
+    fn bare(alerts: Value) -> Value {
+        draft(json!({
+            "title": "Standup",
+            "start": "2026-11-02T09:00:00+00:00",
+            "end": "2026-11-02T09:15:00+00:00",
+            "allDay": false,
+            "timeZone": null,
+            "location": null,
+            "description": null,
+            "recurrence": null,
+            "alerts": alerts,
+            "guests": null,
+        }))
+        .to_json()
+        .unwrap()
+    }
+
+    #[test]
+    fn several_alerts_sync_until_google_runs_out_of_room() {
+        let week = 7 * 24 * 60;
+        let body = bare(json!({
+            "kind": "custom",
+            "alerts": [
+                { "kind": "relative", "minutes": 30, "method": "popup" },
+                { "kind": "relative", "minutes": 60, "method": "email" },
+                { "kind": "relative", "minutes": 120 },
+                { "kind": "relative", "minutes": week },
+                { "kind": "relative", "minutes": 2 * week },
+                // A sixth one, and one longer than 4 weeks, can't be overrides.
+                { "kind": "relative", "minutes": 5 },
+                { "kind": "relative", "minutes": 5 * week },
+                { "kind": "absolute", "at": "2026-11-01T15:00:00+00:00" },
+            ],
+        }));
+        assert_eq!(
+            body["reminders"],
+            json!({
+                "useDefault": false,
+                "overrides": [
+                    { "method": "popup", "minutes": 30 },
+                    { "method": "email", "minutes": 60 },
+                    { "method": "popup", "minutes": 120 },
+                    { "method": "popup", "minutes": week },
+                    { "method": "popup", "minutes": 2 * week },
+                ],
+            })
+        );
+        let stored: StoredAlerts = serde_json::from_str(body["extendedProperties"]["private"][LOCAL_ALERTS].as_str().unwrap()).unwrap();
+        assert_eq!(stored.popup, vec![5, 5 * week]);
+        assert!(stored.email.is_empty());
+        assert_eq!(stored.at, vec!["2026-11-01T15:00:00+00:00"]);
+    }
+
+    #[test]
+    fn four_weeks_still_syncs_and_a_blank_list_clears_local_alerts() {
+        let body = bare(json!({ "kind": "custom", "alerts": [{ "kind": "relative", "minutes": GOOGLE_MAX_MINUTES }] }));
+        assert_eq!(body["reminders"]["overrides"], json!([{ "method": "popup", "minutes": GOOGLE_MAX_MINUTES }]));
+        assert_eq!(body["extendedProperties"]["private"][LOCAL_ALERTS], json!(""));
+
+        let cleared = bare(json!({ "kind": "custom", "alerts": [] }));
+        assert_eq!(cleared["reminders"], json!({ "useDefault": false, "overrides": [] }));
+        assert_eq!(cleared["extendedProperties"]["private"][LOCAL_ALERTS], json!(""));
+
+        // The older "minutes" list is still a popup override.
+        let old = bare(json!({ "kind": "custom", "minutes": [10, 1440] }));
+        assert_eq!(
+            old["reminders"]["overrides"],
+            json!([{ "method": "popup", "minutes": 10 }, { "method": "popup", "minutes": 1440 }])
+        );
+    }
+
+    #[test]
+    fn an_exact_time_has_to_be_a_real_timestamp() {
+        let err = draft(json!({
+            "title": "Standup",
+            "start": "2026-11-02T09:00:00+00:00",
+            "end": "2026-11-02T09:15:00+00:00",
+            "allDay": false,
+            "timeZone": null,
+            "location": null,
+            "description": null,
+            "recurrence": null,
+            "alerts": { "kind": "custom", "alerts": [{ "kind": "absolute", "at": "tomorrow" }] },
+            "guests": null,
+        }))
+        .to_json();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn saved_local_alerts_come_back_with_the_event() {
+        let defaults = vec![Reminder { method: Some("popup".into()), minutes: Some(10) }];
+        let overrides = Reminders {
+            use_default: false,
+            overrides: vec![
+                Reminder { method: Some("popup".into()), minutes: Some(30) },
+                Reminder { method: Some("email".into()), minutes: Some(60) },
+            ],
+        };
+        let local = StoredAlerts { at: vec!["2026-11-01T15:00:00+00:00".into()], popup: vec![5], email: vec![15] };
+        let (popup, email, at) = collect_reminders(Some(&overrides), &defaults, &local);
+        assert_eq!(popup, vec![30, 5]);
+        assert_eq!(email, vec![60, 15]);
+        assert_eq!(at, vec!["2026-11-01T15:00:00+00:00"]);
+
+        // No overrides of its own: the calendar's defaults, plus anything kept locally.
+        let (popup, email, at) = collect_reminders(None, &defaults, &local);
+        assert_eq!(popup, vec![10, 5]);
+        assert_eq!(email, vec![15]);
+        assert_eq!(at.len(), 1);
+
+        // A minute already in the override isn't listed twice.
+        let again = StoredAlerts { popup: vec![30], ..StoredAlerts::default() };
+        let (popup, _, _) = collect_reminders(Some(&overrides), &defaults, &again);
+        assert_eq!(popup, vec![30]);
     }
 
     #[test]
