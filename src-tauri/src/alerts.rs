@@ -5,7 +5,7 @@
 //! window closed. The same loop keeps the next event's name beside the menu
 //! bar icon up to date.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -50,8 +50,6 @@ pub fn start(app: AppHandle) {
         let mut last_check = Local::now();
         // Alerts already shown: item, its start, and minutes before.
         let mut sent = HashSet::new();
-        // Driving times, by event: minutes (if known) and when asked.
-        let mut travel: HashMap<String, (Option<u32>, DateTime<Local>)> = HashMap::new();
         loop {
             let now = Local::now();
             let stale = STALE.swap(false, Ordering::Relaxed);
@@ -69,9 +67,7 @@ pub fn start(app: AppHandle) {
                 }
             }
             let prefs = prefs::get();
-            if prefs.time_to_leave {
-                time_to_leave(&app, &upcoming, now, &mut travel, &mut sent).await;
-            }
+            time_to_leave(&app, &upcoming, now, &mut sent).await;
             let next = if prefs.menu_bar_next { menu_bar_text(&upcoming, now) } else { None };
             desktop::set_menu_bar_text(&app, next);
             tokio::select! {
@@ -82,60 +78,56 @@ pub fn start(app: AppHandle) {
     });
 }
 
-/// Time to leave: for events in the next 3 hours at a real place, an alert
-/// when it's time to set off (the driving time from here, plus 5 minutes).
-/// Mac only: it needs the Mac's location and Apple Maps (travel.rs).
-#[cfg(target_os = "macos")]
-async fn time_to_leave(
-    app: &AppHandle,
-    items: &[AgendaItem],
-    now: DateTime<Local>,
-    travel: &mut HashMap<String, (Option<u32>, DateTime<Local>)>,
-    sent: &mut HashSet<String>,
-) {
-    use crate::travel;
-    const LOOK_AHEAD: TimeDelta = TimeDelta::hours(3);
-    const SPARE: TimeDelta = TimeDelta::minutes(5);
-    const ASK_AGAIN: TimeDelta = TimeDelta::minutes(10);
+/// Time to leave. An event's own "before leaving" alerts fire at each buffer.
+/// With none, the Settings switch still alerts (5 minutes early) for a real
+/// place in the next 3 hours, as it used to. The drive comes from the
+/// leave-from address via Routes; on a Mac with no address, from Apple Maps.
+async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Local>, sent: &mut HashSet<String>) {
+    use chrono::Utc;
 
-    travel.retain(|_, (_, asked)| now - *asked < TimeDelta::hours(6));
+    let prefs = prefs::get();
+    let state = app.state::<crate::AppState>();
+    let has_key = crate::leave::api_key().is_some();
+    let allow_device = prefs.uses_device_location();
     for item in items.iter().filter(|item| item.kind == ItemKind::Event && !item.all_day) {
-        let Some(place) = item.location.as_deref().filter(|place| travel::is_physical(place)) else { continue };
+        let Some(place) = item.location.as_deref().filter(|place| crate::leave::is_physical(place)) else {
+            continue;
+        };
         let Ok(start) = DateTime::parse_from_rfc3339(&item.start) else { continue };
         let start = start.with_timezone(&Local);
-        if start <= now || start - now > LOOK_AHEAD {
+        if start <= now {
             continue;
         }
-        let key = format!("leave|{}|{}", item.id, item.start);
-        if sent.contains(&key) {
+        let buffers = crate::leave::alert_buffers(&item.leave_alerts, prefs.time_to_leave, start - now);
+        if buffers.is_empty() {
             continue;
         }
-        let minutes = match travel.get(&key) {
-            Some((minutes, asked)) if now - *asked < ASK_AGAIN => *minutes,
-            _ => {
-                let minutes = travel::driving_minutes(app, place.to_string(), start).await;
-                travel.insert(key.clone(), (minutes, now));
-                minutes
-            }
+        let origin = crate::leave::resolve_origin(item.leave_from.as_deref(), &prefs.leave_from);
+        let arrive = start.with_timezone(&Utc);
+        let answer = crate::leave::resolve(
+            &state.http,
+            place,
+            arrive,
+            now.with_timezone(&Utc),
+            origin.as_deref(),
+            has_key,
+            allow_device,
+            || crate::device_drive(app, place, start),
+        )
+        .await;
+        // The automatic alert skips a drive so short you're already there.
+        // One the event asked for still fires.
+        let Some(minutes) =
+            answer.minutes.filter(|minutes| !item.leave_alerts.is_empty() || *minutes >= crate::leave::MIN_LEGACY_DRIVE)
+        else {
+            continue;
         };
-        // Unknown, or you're as good as there already.
-        let Some(minutes) = minutes.filter(|m| *m >= 3) else { continue };
-        if start - TimeDelta::minutes(minutes.into()) - SPARE <= now {
-            sent.insert(key);
-            let body = format!("{minutes} min drive · starts {} · {place}", start.format("%-I:%M %p"));
-            let _ = app.notification().builder().title(format!("Time to leave for {}", item.title)).body(body).show();
+        for notice in crate::leave::notices(&item.id, &item.start, &item.title, place, start, minutes, &buffers, now, sent)
+        {
+            sent.insert(notice.key);
+            let _ = app.notification().builder().title(notice.title).body(notice.body).show();
         }
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-async fn time_to_leave(
-    _app: &AppHandle,
-    _items: &[AgendaItem],
-    _now: DateTime<Local>,
-    _travel: &mut HashMap<String, (Option<u32>, DateTime<Local>)>,
-    _sent: &mut HashSet<String>,
-) {
 }
 
 /// How far ahead to load. Google's longest reminder is 4 weeks, and an exact
@@ -328,6 +320,8 @@ mod tests {
             alert_at: Vec::new(),
             floating: false,
             time_zone: None,
+            leave_from: None,
+            leave_alerts: Vec::new(),
         }
     }
 

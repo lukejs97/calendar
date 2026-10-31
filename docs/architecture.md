@@ -42,6 +42,7 @@
 │                    the menu bar's next event        │
 │ prefs.rs           settings kept for the Rust side  │
 │ apple.rs           Mac: Calendar + Reminders apps   │
+│ leave.rs           leave-by time: Routes, cache     │
 │ travel.rs          Mac: location, Apple Maps times  │
 │ secrets.rs         OS keychain                      │
 │ error.rs           AppError → { kind, message }     │
@@ -103,10 +104,25 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   `set_task_completed`). `agenda::load` adds them when turned on in Settings
   (`prefs.rs`). Calendars whose account looks like one of your Google ones
   start hidden, to avoid doubles.
-- **Time to leave** (`travel.rs`, used by `alerts.rs`): `CLLocationManager`
-  on the main thread follows the location while it's on; `MKLocalSearch`
-  finds the event's place near you and `MKDirections` the driving time,
-  arriving at the start. The alert comes at start − drive − 5 minutes.
+- **Leave by** (`leave.rs`, used by `alerts.rs` and the `leave_times`
+  command): a starting address (Settings, or the event's own
+  `minutemanLeaveFrom` property) and Google's Routes API
+  (`routingPreference: TRAFFIC_AWARE`). The key is the environment variable
+  `MINUTEMAN_ROUTES_API_KEY`, else the keychain, else (development builds) a
+  `.env` line read at run time — never compiled in. Driving traffic is asked
+  at a departure time, then once more if that drive would change when you
+  leave. Answers are cached, and refreshed sooner as the event gets closer
+  (5 minutes inside 45 minutes, up to 4 hours when it's more than 12 hours
+  away). Nothing is asked until the event is inside 48 hours, or when there's
+  no key, no address, no real place, or the lookup fails. "Before leaving" is
+  an alert stored with the others Minuteman keeps (`minutemanAlerts`, a
+  `leave` list of buffer minutes). It fires at leave-by minus that buffer,
+  once, while the event hasn't started.
+- **Time to leave** (the older switch, still in Settings): for events that
+  don't set their own leave alert, within 3 hours, plus 5 minutes. With an
+  address it uses the same Routes path. With none, on a Mac, `travel.rs`
+  follows the location (`CLLocationManager`) and asks Apple Maps
+  (`MKDirections`) for the drive. The time math is the same either way.
 - Permissions: the prompts' texts are in `Info.macos.plist`, and the hardened
   runtime's calendar and location entitlements in `Entitlements.macos.plist`
   (`tauri.conf.json` → bundle → macOS).

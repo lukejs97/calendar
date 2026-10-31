@@ -191,3 +191,46 @@ there renews it). Otherwise the old token still expires after 7 days.
 | "People API has not been used in project … or it is disabled" (in Contacts) | Enable the People API (step 2, item 3) in the same project. |
 | "Your Google session ended" after a week | The token was issued while in Testing. Publish the app, then sign in again. |
 | `invalid_client` | The client ID or secret in `.env` has a typo, or the secret was deleted. |
+| Leave-by times never appear | No Routes API key, or Routes API isn't enabled. See below. A video link isn't a place, so those events don't get one. |
+
+## Leave-by times (Routes API)
+
+This is separate from the OAuth client above. Minuteman asks Google's Routes
+API how long a drive takes, with traffic, from a starting address to the
+event's place. The key is not an OAuth token and it is not built into the app.
+
+1. In the same Google Cloud project (or any project on a billing account —
+   Routes requires billing, though a personal calendar stays inside the free
+   monthly credit for most people), go to **APIs & Services → Library**,
+   search for **Routes API**, and enable it.
+2. **APIs & Services → Credentials → Create credentials → API key**.
+3. Restrict the key (recommended): **Application restrictions** can stay
+   **None** for a desktop app, since the key is used from the app itself.
+   Under **API restrictions**, choose **Restrict key** and select **Routes API**.
+4. Give the key to Minuteman in either of these ways:
+   - **Settings → Leave from**, paste it under **Routes API key**, and Save.
+     It's stored in the keychain (with your other sign-ins), not in a file
+     the window can read.
+   - Or set the environment variable `MINUTEMAN_ROUTES_API_KEY` before
+     launching the app. That wins over a key saved in Settings.
+   - In a development build only, you can also uncomment that line in
+     `src-tauri/.env`. It's read when the app runs, not compiled in. A key
+     saved in Settings wins over the file.
+
+Then set **Leave from** to the address you usually start from. An event can
+name a different one (its **Leave from** field). Events at a real place, in
+the next two days, show **Leave by** once a drive comes back. Add a
+notification of **before leaving** (0 for the leave-by time itself, or 10 for
+ten minutes earlier).
+
+Nothing is shown, and nothing breaks, when the key is missing, the address is
+missing, the place is a video call, the event is too far away, or Google
+doesn't answer. A failed lookup is tried again after a couple of minutes.
+Successful ones are reused, and asked again more often as the event gets
+closer.
+
+To check it: set the address and key, make an event an hour from now at a
+street address, and confirm the day view says **Leave by** a time. Add
+**before leaving** with **0** minutes and leave the app running (the window
+can be closed). A notification **Time to leave for …** should appear at that
+leave-by time. `cargo test --lib leave::` checks the time math without a key.

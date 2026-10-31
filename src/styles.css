@@ -670,6 +670,28 @@ main.loading > * {
   display: none;
 }
 
+.item-leave,
+.tl-event-leave,
+.month-leave {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-leave,
+.tl-event > .tl-event-leave {
+  display: block;
+}
+
+.item-leave {
+  font-size: 13px;
+}
+
+.month-leave {
+  flex: none;
+  font-size: 11px;
+}
+
 /* Anything that opens in Google Calendar. */
 [role="link"] {
   cursor: pointer;
@@ -1660,7 +1682,8 @@ main.loading > * {
 }
 
 /* Its place, a size down so it fits under the time in an hour-long event. */
-.tl-event-place {
+.tl-event-place,
+.tl-event-leave {
   font-size: 11px;
   white-space: nowrap;
 }

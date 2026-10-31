@@ -96,10 +96,17 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   phone) show up within a minute while Minuteman is open, and as soon as you
   come back to it.
 - **Alerts** at each event's reminder times from Google Calendar, also with
-  the window closed.
-- **Time to leave** (Mac; Settings → Time to leave): for events at a real
-  place in the next 3 hours, an alert when it's time to set off, from your
-  Mac's location and Apple Maps' driving time (plus 5 minutes).
+  the window closed. An event can have several, including an exact time and
+  "before leaving".
+- **Leave by** (Settings → Leave from): a default starting address, which an
+  event can override. Events at a real place show when to leave, from live
+  traffic (Google's Routes API). Add **before leaving** as an alert — for
+  example 10 minutes before that time, or 0 to be told at the leave-by time
+  itself. The API key goes in Settings or in `MINUTEMAN_ROUTES_API_KEY`; it
+  is never built into the app. With no key, no address, or a failed lookup,
+  the calendar still works and just doesn't show a time. On a Mac, Settings →
+  Time to leave still alerts for events that don't set their own, using that
+  address, or Apple Maps from the Mac's location when no address is set.
 - **Apple Calendar and Reminders** (Mac; Settings): events from the Calendar
   app (iCloud, Exchange, anything added on the Mac) and reminders with a due
   date, alongside the rest. Tick reminders off here; other changes happen in
@@ -108,8 +115,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Offline:** opens straight away with what it last loaded, and shows (and
   searches) it without internet.
 - **Settings** (the gear, or `,`): Google accounts, Todoist, how many days
-  the multi-day view shows (2 to 7; each device remembers its own), and on the
-  desktop the menu bar, time to leave, and Apple Calendar and Reminders.
+  the multi-day view shows (2 to 7; each device remembers its own), the
+  leave-from address and Routes API key, and on the desktop the menu bar,
+  time to leave, and Apple Calendar and Reminders.
 - **Several Google accounts:** Settings → Google accounts → **Add account**. While the
   Google project is in **Testing**, add the extra account as a test user first
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).

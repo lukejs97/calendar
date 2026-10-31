@@ -2,6 +2,7 @@
 // "+N more" for the rest.
 import type { AgendaItem } from "../api";
 import { decorateTask, el, makeOpenable, setItemColor } from "../dom";
+import { leaveLabel } from "../leave";
 import { weatherBadge, weatherOn } from "../weather";
 import { enableDayDrag } from "./drag";
 import {
@@ -56,6 +57,8 @@ function monthEntry(item: AgendaItem, day: Date, ctx: ViewContext): HTMLElement 
     if (item.kind === "event") node.append(el("span", "month-dot"));
     if (startsToday) node.append(el("span", "month-time", timeFormat.format(itemStart(item))));
     node.append(el("span", "month-title", item.title));
+    const leave = leaveLabel(item, "month-leave");
+    if (leave) node.append(leave);
   }
 
   node.setAttribute("aria-label", item.title);

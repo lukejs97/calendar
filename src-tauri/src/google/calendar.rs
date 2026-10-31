@@ -87,10 +87,15 @@ struct ExtendedProperties {
 /// has no such "floating" events, so its own apps still show it fixed.
 pub const FLOATING: &str = "minutemanFloating";
 
-/// Exact-time alerts, and any reminder Google's API can't store, kept on the
-/// event as a private property (a JSON string). Google Calendar reminders are
-/// only "minutes before the start", at most 5 of them, and at most 4 weeks
-/// out, so an alert at a chosen date and time has nowhere to go there.
+/// This event's own starting address for leave-by, when it shouldn't use the
+/// one in Settings. Empty removes it.
+pub const LEAVE_FROM: &str = "minutemanLeaveFrom";
+
+/// Exact-time alerts, leave alerts, and any reminder Google's API can't store,
+/// kept on the event as a private property (a JSON string). Google Calendar
+/// reminders are only "minutes before the start", at most 5 of them, and at
+/// most 4 weeks out, so an alert at a chosen date and time — or one that
+/// depends on traffic — has nowhere to go there.
 ///
 /// These are not Google reminder overrides: Google's own apps neither show
 /// nor send them. Minuteman reads them back with the event and fires them
@@ -392,6 +397,12 @@ pub enum AlertSpec {
     },
     /// RFC 3339. Not a Google Calendar reminder.
     Absolute { at: String },
+    /// Minutes before the leave-by time. Not a Google Calendar reminder: the
+    /// time depends on traffic, so Minuteman works it out and fires the alert.
+    Leave {
+        #[serde(rename = "bufferMinutes")]
+        buffer_minutes: u32,
+    },
 }
 
 /// An event's alerts: its calendar's defaults, or its own list (empty for none).
@@ -430,6 +441,10 @@ pub struct EventDraft {
     /// Keep its clock time in any time zone (see `FLOATING`). `None` leaves it as it is.
     #[serde(default)]
     pub floating: Option<bool>,
+    /// Starting address for the drive. `None` leaves an existing one as it is.
+    /// `Some("")` clears it (use the address in Settings).
+    #[serde(default)]
+    pub leave_from: Option<String>,
 }
 
 impl EventDraft {
@@ -458,6 +473,9 @@ impl EventDraft {
             // An empty string asks an update to remove any alerts kept earlier.
             private.insert(LOCAL_ALERTS.to_string(), json!(stored.to_property()));
         }
+        if let Some(from) = &self.leave_from {
+            private.insert(LEAVE_FROM.to_string(), json!(from.trim()));
+        }
         if !private.is_empty() {
             body["extendedProperties"] = json!({ "private": private });
         }
@@ -482,7 +500,8 @@ impl EventDraft {
 }
 
 /// Alerts Minuteman keeps on the event because Google Calendar's reminders
-/// can't: an exact instant, a sixth override, or a lead longer than 4 weeks.
+/// can't: an exact instant, a time to leave, a sixth override, or a lead
+/// longer than 4 weeks.
 #[derive(serde::Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct StoredAlerts {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -491,11 +510,14 @@ struct StoredAlerts {
     popup: Vec<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     email: Vec<u32>,
+    /// Minutes before the leave-by time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    leave: Vec<u32>,
 }
 
 impl StoredAlerts {
     fn is_empty(&self) -> bool {
-        self.at.is_empty() && self.popup.is_empty() && self.email.is_empty()
+        self.at.is_empty() && self.popup.is_empty() && self.email.is_empty() && self.leave.is_empty()
     }
 
     /// JSON for the private property, or "" when there's nothing to keep
@@ -513,7 +535,11 @@ fn parse_stored(value: Option<&str>) -> StoredAlerts {
 /// The popup minutes, email minutes, and exact instants to show and fire.
 /// Calendar defaults stand in when the event doesn't set its own reminders.
 /// Anything kept in `local` is added on, without repeating a minute already there.
-fn collect_reminders(event_reminders: Option<&Reminders>, defaults: &[Reminder], local: &StoredAlerts) -> (Vec<u32>, Vec<u32>, Vec<String>) {
+fn collect_reminders(
+    event_reminders: Option<&Reminders>,
+    defaults: &[Reminder],
+    local: &StoredAlerts,
+) -> (Vec<u32>, Vec<u32>, Vec<String>, Vec<u32>) {
     let source = match event_reminders {
         Some(reminders) if !reminders.use_default => &reminders.overrides,
         _ => defaults,
@@ -522,7 +548,7 @@ fn collect_reminders(event_reminders: Option<&Reminders>, defaults: &[Reminder],
     let mut email = minutes_of(source, "email");
     append_unique(&mut popup, &local.popup);
     append_unique(&mut email, &local.email);
-    (popup, email, local.at.clone())
+    (popup, email, local.at.clone(), local.leave.clone())
 }
 
 fn minutes_of(reminders: &[Reminder], method: &str) -> Vec<u32> {
@@ -566,6 +592,17 @@ fn split_alerts(alerts: &Alerts) -> Result<(Value, StoredAlerts)> {
                         AlertMethod::Popup => stored.popup.push(minutes),
                         AlertMethod::Email => stored.email.push(minutes),
                     }
+                }
+            }
+            AlertSpec::Leave { buffer_minutes } => {
+                // A week of spare time is plenty; anything larger is a typo.
+                if buffer_minutes > 7 * 24 * 60 {
+                    return Err(AppError::InvalidInput(
+                        "a leave alert can't be more than a week before you need to leave".into(),
+                    ));
+                }
+                if !stored.leave.contains(&buffer_minutes) {
+                    stored.leave.push(buffer_minutes);
                 }
             }
         }
@@ -939,10 +976,13 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         .or(event.hangout_link)
         .or_else(|| event.location.as_deref().and_then(find_meeting_link))
         .or_else(|| event.description.as_deref().and_then(find_meeting_link));
-    let stored = parse_stored(event.extended_properties.as_ref().and_then(|p| p.private.get(LOCAL_ALERTS).map(String::as_str)));
+    let props = event.extended_properties.as_ref().map(|p| &p.private);
+    let stored = parse_stored(props.and_then(|p| p.get(LOCAL_ALERTS).map(String::as_str)));
+    let leave_from = props.and_then(|p| p.get(LEAVE_FROM)).filter(|s| !s.trim().is_empty()).cloned();
     // All-day events too: "1 day before" is a real Google reminder, measured
     // back from midnight at the start of the event.
-    let (reminders, email_reminders, alert_at) = collect_reminders(event.reminders.as_ref(), &calendar.default_reminders, &stored);
+    let (reminders, email_reminders, alert_at, leave_alerts) =
+        collect_reminders(event.reminders.as_ref(), &calendar.default_reminders, &stored);
     let organized_by_you = event.organizer.as_ref().is_none_or(|o| o.is_self);
     let attendees = event
         .attendees
@@ -972,6 +1012,8 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         reminders,
         email_reminders,
         alert_at,
+        leave_from,
+        leave_alerts,
         id: format!("google:{}:{}", calendar.id, event.id),
         source: Source::Google,
         kind: ItemKind::Event,
@@ -1229,22 +1271,81 @@ mod tests {
                 Reminder { method: Some("email".into()), minutes: Some(60) },
             ],
         };
-        let local = StoredAlerts { at: vec!["2026-11-01T15:00:00+00:00".into()], popup: vec![5], email: vec![15] };
-        let (popup, email, at) = collect_reminders(Some(&overrides), &defaults, &local);
+        let local = StoredAlerts {
+            at: vec!["2026-11-01T15:00:00+00:00".into()],
+            popup: vec![5],
+            email: vec![15],
+            ..StoredAlerts::default()
+        };
+        let (popup, email, at, leave) = collect_reminders(Some(&overrides), &defaults, &local);
         assert_eq!(popup, vec![30, 5]);
         assert_eq!(email, vec![60, 15]);
         assert_eq!(at, vec!["2026-11-01T15:00:00+00:00"]);
+        assert!(leave.is_empty());
 
         // No overrides of its own: the calendar's defaults, plus anything kept locally.
-        let (popup, email, at) = collect_reminders(None, &defaults, &local);
+        let (popup, email, at, _) = collect_reminders(None, &defaults, &local);
         assert_eq!(popup, vec![10, 5]);
         assert_eq!(email, vec![15]);
         assert_eq!(at.len(), 1);
 
         // A minute already in the override isn't listed twice.
         let again = StoredAlerts { popup: vec![30], ..StoredAlerts::default() };
-        let (popup, _, _) = collect_reminders(Some(&overrides), &defaults, &again);
+        let (popup, _, _, _) = collect_reminders(Some(&overrides), &defaults, &again);
         assert_eq!(popup, vec![30]);
+    }
+
+    #[test]
+    fn a_leave_alert_and_a_starting_address_stay_on_the_event() {
+        let body = bare(json!({
+            "kind": "custom",
+            "alerts": [
+                { "kind": "relative", "minutes": 15 },
+                { "kind": "leave", "bufferMinutes": 10 },
+                { "kind": "leave", "bufferMinutes": 10 },
+                { "kind": "leave", "bufferMinutes": 0 },
+            ],
+        }));
+        assert_eq!(body["reminders"]["overrides"], json!([{ "method": "popup", "minutes": 15 }]));
+        let stored: StoredAlerts =
+            serde_json::from_str(body["extendedProperties"]["private"][LOCAL_ALERTS].as_str().unwrap()).unwrap();
+        assert_eq!(stored.leave, vec![10, 0]);
+
+        let with_from = draft(json!({
+            "title": "Dentist",
+            "start": "2026-11-02T15:00:00+00:00",
+            "end": "2026-11-02T16:00:00+00:00",
+            "allDay": false,
+            "timeZone": null,
+            "location": "123 Main St",
+            "description": null,
+            "recurrence": null,
+            "alerts": null,
+            "guests": null,
+            "leaveFrom": " 100 High St ",
+        }))
+        .to_json()
+        .unwrap();
+        assert_eq!(with_from["extendedProperties"]["private"][LEAVE_FROM], json!("100 High St"));
+
+        // An empty string clears an address saved earlier. Alerts aren't touched.
+        let cleared = draft(json!({
+            "title": "Dentist",
+            "start": "2026-11-02T15:00:00+00:00",
+            "end": "2026-11-02T16:00:00+00:00",
+            "allDay": false,
+            "timeZone": null,
+            "location": "123 Main St",
+            "description": null,
+            "recurrence": null,
+            "alerts": null,
+            "guests": null,
+            "leaveFrom": "",
+        }))
+        .to_json()
+        .unwrap();
+        assert_eq!(cleared["extendedProperties"]["private"][LEAVE_FROM], json!(""));
+        assert!(cleared["extendedProperties"]["private"].get(LOCAL_ALERTS).is_none());
     }
 
     #[test]

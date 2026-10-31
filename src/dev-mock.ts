@@ -132,6 +132,7 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     if (isSameDay(day, today)) {
       task(day, "Renew passport", 1, PERSONAL_TASKS, undefined, true);
       task(day, "Buy groceries", 3, HOME);
+      timed(day, "Coffee nearby", PERSONAL, 16, 45, "Cafe Roma, 12 High St");
     }
     if (weekday === 1) timed(day, "Planning", WORK, 10, 60, undefined, { recurring: true, seriesId: "planning" });
     if (weekday === 2) {
@@ -274,7 +275,9 @@ export function install(): void {
   const deleted = new Set<string>();
   const edit = (id: string, changes: Partial<AgendaItem>) => edits.set(id, { ...edits.get(id), ...changes });
   /** What the form saved, as the agenda would show it after a reload. Null leaves them as they are. */
-  const savedAlerts = (alerts: Alerts | null): Pick<AgendaItem, "reminders" | "emailReminders" | "alertAt"> | null => {
+  const savedAlerts = (
+    alerts: Alerts | null,
+  ): Pick<AgendaItem, "reminders" | "emailReminders" | "alertAt" | "leaveAlerts"> | null => {
     if (!alerts) return null;
     if (alerts.kind === "default") return { reminders: [10], emailReminders: [], alertAt: [] };
     const list =
@@ -282,12 +285,14 @@ export function install(): void {
     const reminders: number[] = [];
     const emailReminders: number[] = [];
     const alertAt: string[] = [];
+    const leaveAlerts: number[] = [];
     for (const alert of list) {
       if (alert.kind === "absolute") alertAt.push(alert.at);
+      else if (alert.kind === "leave") leaveAlerts.push(alert.bufferMinutes);
       else if (alert.method === "email") emailReminders.push(alert.minutes);
       else reminders.push(alert.minutes);
     }
-    return { reminders, emailReminders, alertAt };
+    return { reminders, emailReminders, alertAt, leaveAlerts };
   };
   const dueFields = (due: TaskDue): Partial<AgendaItem> => {
     if (due.kind !== "at") return {};
@@ -303,6 +308,7 @@ export function install(): void {
   let preferences = {
     menuBarNext: true,
     timeToLeave: false,
+    leaveFrom: "100 Main Street, Springfield",
     appleCalendar: false,
     appleReminders: false,
     appleCalendarsShown: {} as Record<string, boolean>,
@@ -311,6 +317,8 @@ export function install(): void {
   // Google calendars hidden in Settings (by name here; the samples have no real IDs).
   const hiddenCalendars = new Set<string>();
   let openAtLoginNow = false;
+  // A pretend Routes key, so the preview can show leave-by times.
+  let routesKey = "preview";
 
   // The weather (src/weather.ts) comes from Open-Meteo; answer for it here.
   const realFetch = window.fetch.bind(window);
@@ -486,7 +494,8 @@ export function install(): void {
           description: null,
           attendees: [],
           conferenceUrl: null,
-          ...(savedAlerts(event.alerts) ?? { reminders: [10], emailReminders: [], alertAt: [] }),
+          leaveFrom: event.leaveFrom?.trim() || null,
+          ...(savedAlerts(event.alerts) ?? { reminders: [10], emailReminders: [], alertAt: [], leaveAlerts: [] }),
         });
         return null;
       }
@@ -497,9 +506,18 @@ export function install(): void {
           occurrence: unknown;
         };
         if (occurrence) console.info("mock IPC: update_event for the whole series", target, event, occurrence);
-        const { title, start, end, allDay, location, description } = event;
+        const { title, start, end, allDay, location, description, leaveFrom } = event;
         const alerts = savedAlerts(event.alerts);
-        edit(target.eventId, { title, start, end, allDay, location, description, ...(alerts ?? {}) });
+        edit(target.eventId, {
+          title,
+          start,
+          end,
+          allDay,
+          location,
+          description,
+          leaveFrom: leaveFrom?.trim() || null,
+          ...(alerts ?? {}),
+        });
         return null;
       }
       case "set_event_times": {
@@ -560,6 +578,35 @@ export function install(): void {
         ].map((c) => ({ ...c, shown: preferences.appleCalendarsShown[c.id] ?? c.shown }));
       case "location_access":
         return "granted";
+      case "routes_key_status":
+        return { configured: routesKey.length > 0, source: routesKey ? "settings" : "none" };
+      case "set_routes_key": {
+        const key = (args as { key: string }).key.trim();
+        if (key.length > 256 || /\s/.test(key)) throw { kind: "input", message: "Invalid request: That doesn't look like an API key." };
+        routesKey = key;
+        return null;
+      }
+      case "leave_times": {
+        const { events } = args as {
+          events: { id: string; start: string; location: string; leaveFrom: string | null }[];
+        };
+        const fallback = preferences.leaveFrom.trim();
+        return (events ?? []).slice(0, 40).map((event) => {
+          const location = event.location ?? "";
+          const startMs = Date.parse(event.start);
+          const virtual = !location.trim() || /:\/\/|zoom|meet\.google|teams|webex|facetime|online|virtual|phone|call/i.test(location);
+          const blank = { id: event.id, start: event.start, minutes: null, leaveAt: null };
+          if (virtual) return { ...blank, status: "notPhysical" };
+          if (!Number.isFinite(startMs)) return { ...blank, status: "unavailable" };
+          if (startMs <= Date.now()) return { ...blank, status: "past" };
+          if (startMs - Date.now() > 48 * 60 * 60 * 1000) return { ...blank, status: "tooFar" };
+          const origin = (event.leaveFrom ?? "").trim() || fallback;
+          if (!origin) return { ...blank, status: "noOrigin" };
+          if (!routesKey) return { ...blank, status: "noKey" };
+          const minutes = 25;
+          return { id: event.id, start: event.start, minutes, leaveAt: new Date(startMs - minutes * 60_000).toISOString(), status: "ok" };
+        });
+      }
       case "get_contacts":
       case "get_saved_contacts":
         return {

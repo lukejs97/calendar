@@ -13,7 +13,7 @@ const GOOGLE_MAX_MINUTES = 40_320;
 const WEEK = 7 * 24 * 60;
 const DAY = 24 * 60;
 
-type Unit = "minutes" | "hours" | "days" | "weeks" | "at";
+type Unit = "minutes" | "hours" | "days" | "weeks" | "at" | "leave";
 type Method = "popup" | "email";
 
 interface Row {
@@ -40,9 +40,10 @@ const UNITS: [Unit, string][] = [
   ["days", "days"],
   ["weeks", "weeks"],
   ["at", "specific time"],
+  ["leave", "before leaving"],
 ];
 
-const MULTIPLIER: Record<Exclude<Unit, "at">, number> = {
+const MULTIPLIER: Record<Exclude<Unit, "at" | "leave">, number> = {
   minutes: 1,
   hours: 60,
   days: DAY,
@@ -155,6 +156,7 @@ export class AlertEditor {
       ...item.reminders.map((minutes) => this.relative("popup", minutes)),
       ...(item.emailReminders ?? []).map((minutes) => this.relative("email", minutes)),
       ...(item.alertAt ?? []).map((at) => this.absolute(at)),
+      ...(item.leaveAlerts ?? []).map((buffer) => this.leave(buffer)),
     ];
     this.render();
     this.initial = this.snapshot();
@@ -194,6 +196,11 @@ export class AlertEditor {
         return { kind: "absolute", at: toLocalIso(when) };
       }
       if (!/^\d+$/.test(row.amount.trim())) throw new Error("Enter a whole number for each notification.");
+      if (row.unit === "leave") {
+        const buffer = Number(row.amount);
+        if (buffer > 7 * 24 * 60) throw new Error("A leave alert can't be more than a week before you need to leave.");
+        return { kind: "leave", bufferMinutes: buffer };
+      }
       const minutes = Number(row.amount) * MULTIPLIER[row.unit];
       if (!Number.isSafeInteger(minutes) || minutes > 0xffff_ffff) throw new Error("That notification is too far ahead.");
       return { kind: "relative", minutes, method: row.method };
@@ -204,6 +211,10 @@ export class AlertEditor {
   private relative(method: Method, minutes: number): Row {
     const parts = minutesToParts(minutes);
     return { method, unit: parts.unit, amount: String(parts.amount), date: "", time: "" };
+  }
+
+  private leave(buffer: number): Row {
+    return { method: "popup", unit: "leave", amount: String(buffer), date: "", time: "" };
   }
 
   private absolute(at: string): Row {
@@ -248,6 +259,8 @@ export class AlertEditor {
   private exceedsGoogle(): boolean {
     let syncable = 0;
     for (const row of this.rows) {
+      // A leave alert has its own note. It never becomes a Google reminder.
+      if (row.unit === "leave") continue;
       if (row.unit === "at") return true;
       const amount = Number(row.amount);
       if (!Number.isInteger(amount) || amount < 0) continue;
@@ -263,10 +276,18 @@ export class AlertEditor {
     if (!this.customized && this.rows.length === 0) {
       return "Uses the calendar's notifications until you add your own.";
     }
-    if (this.exceedsGoogle()) {
-      return "Exact times, and notifications past Google's limit of 5 (or 4 weeks), stay on the event for Minuteman to alert you. Google Calendar won't send those.";
+    const bits: string[] = [];
+    if (this.rows.some((row) => row.unit === "leave")) {
+      bits.push(
+        "“Before leaving” uses live traffic and alerts that many minutes before you need to leave (0 means at the leave-by time). Google Calendar won't send it.",
+      );
     }
-    return "";
+    if (this.exceedsGoogle()) {
+      bits.push(
+        "Exact times, and notifications past Google's limit of 5 (or 4 weeks), stay on the event for Minuteman to alert you. Google Calendar won't send those.",
+      );
+    }
+    return bits.join(" ");
   }
 
   private render(): void {
@@ -291,8 +312,9 @@ export class AlertEditor {
     const line = el("div", "alert-row");
     const method = el("select", "text-input alert-method");
     method.append(option("popup", "Notification"), option("email", "Email"));
-    method.value = row.unit === "at" ? "popup" : row.method;
-    method.disabled = row.unit === "at";
+    const timed = row.unit === "at" || row.unit === "leave";
+    method.value = timed ? "popup" : row.method;
+    method.disabled = timed;
     method.setAttribute("aria-label", "Notification type");
     method.addEventListener("change", () => {
       row.method = method.value === "email" ? "email" : "popup";
@@ -306,7 +328,7 @@ export class AlertEditor {
     amount.inputMode = "numeric";
     amount.value = row.amount;
     amount.hidden = row.unit === "at";
-    amount.setAttribute("aria-label", "How long before");
+    amount.setAttribute("aria-label", row.unit === "leave" ? "Minutes before you leave" : "How long before");
     const onAmount = () => {
       row.amount = amount.value;
       this.edited();
@@ -344,11 +366,13 @@ export class AlertEditor {
     unit.setAttribute("aria-label", "Notification unit");
     unit.addEventListener("change", () => {
       const next = unit.value as Unit;
-      const wasExact = row.unit === "at";
+      const shape = (u: Unit) => (u === "at" ? "at" : u === "leave" ? "leave" : "lead");
+      const was = shape(row.unit);
       row.unit = next;
       if (next === "at") this.suggestExact(row);
+      if (next === "leave" && (row.amount === "" || row.amount === "30")) row.amount = "10";
       this.edited();
-      if (wasExact !== (next === "at")) this.render();
+      if (was !== shape(next)) this.render();
     });
 
     const remove = el("button", "alert-remove", "×");

@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
+import { leaveDetail } from "./leave";
 import { describeTimes, itemEnd, itemStart } from "./time";
 
 const RESPONSES: Record<string, string> = {
@@ -63,6 +64,15 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     const where = el("span");
     where.append(place, " ", map);
     rows.append(row("Where", where));
+    const leaveRow = row("Leave by", "…");
+    leaveRow.hidden = true;
+    rows.append(leaveRow);
+    void leaveDetail(item).then((text) => {
+      if (!text || !leaveRow.isConnected) return;
+      leaveRow.hidden = false;
+      const value = leaveRow.querySelector(".details-value");
+      if (value) value.textContent = text;
+    });
   }
   if (item.kind === "task") {
     const project = item.priority && item.priority < 4 ? `${item.listName} · P${item.priority}` : item.listName;

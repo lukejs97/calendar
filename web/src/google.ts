@@ -233,6 +233,8 @@ const FLOATING = "minutemanFloating";
  * (on the desktop). Kept in step with `LOCAL_ALERTS` in google/calendar.rs.
  */
 const LOCAL_ALERTS = "minutemanAlerts";
+/** This event's own starting address. Kept in step with `LEAVE_FROM` in google/calendar.rs. */
+const LEAVE_FROM = "minutemanLeaveFrom";
 const GOOGLE_MAX_OVERRIDES = 5;
 const GOOGLE_MAX_MINUTES = 40_320;
 
@@ -413,6 +415,7 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
   const reminders = unique([...minutesOf(source, "popup"), ...stored.popup]);
   const emailReminders = unique([...minutesOf(source, "email"), ...stored.email]);
   const alertAt = stored.at;
+  const leaveAlerts = stored.leave;
   const organizedByYou = !event.organizer || !!event.organizer.self;
   const guests: Attendee[] = attendees
     .filter((a) => !a.resource)
@@ -424,6 +427,7 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
       isSelf: !!a.self,
     }));
   const nonEmpty = (s?: string) => (s && s.trim() ? s : null);
+  const leaveFrom = nonEmpty(event.extendedProperties?.private?.[LEAVE_FROM]);
 
   return {
     id: `google:${calendar.id}:${event.id}`,
@@ -454,6 +458,8 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     reminders,
     emailReminders,
     alertAt,
+    leaveFrom,
+    leaveAlerts,
   };
 }
 
@@ -461,15 +467,16 @@ interface StoredAlerts {
   at?: string[];
   popup?: number[];
   email?: number[];
+  leave?: number[];
 }
 
 const readStored = (value?: string): Required<StoredAlerts> => {
-  if (!value) return { at: [], popup: [], email: [] };
+  if (!value) return { at: [], popup: [], email: [], leave: [] };
   try {
     const parsed = JSON.parse(value) as StoredAlerts;
-    return { at: parsed.at ?? [], popup: parsed.popup ?? [], email: parsed.email ?? [] };
+    return { at: parsed.at ?? [], popup: parsed.popup ?? [], email: parsed.email ?? [], leave: parsed.leave ?? [] };
   } catch {
-    return { at: [], popup: [], email: [] };
+    return { at: [], popup: [], email: [], leave: [] };
   }
 };
 
@@ -540,6 +547,7 @@ function draftJson(draft: EventDraft): Record<string, unknown> {
     // An empty string asks an update to remove alerts kept earlier.
     privateProps[LOCAL_ALERTS] = split.stored;
   }
+  if (typeof draft.leaveFrom === "string") privateProps[LEAVE_FROM] = draft.leaveFrom.trim();
   if (Object.keys(privateProps).length > 0) body.extendedProperties = { private: privateProps };
   if (draft.recurrence) body.recurrence = draft.recurrence;
   if (draft.guests) {
@@ -623,11 +631,19 @@ function splitAlerts(alerts: NonNullable<EventDraft["alerts"]>): {
   const specs =
     alerts.alerts ?? (alerts.minutes ?? []).map((minutes) => ({ kind: "relative" as const, minutes, method: "popup" as const }));
   const overrides: { method: string; minutes: number }[] = [];
-  const stored: Required<StoredAlerts> = { at: [], popup: [], email: [] };
+  const stored: Required<StoredAlerts> = { at: [], popup: [], email: [], leave: [] };
   for (const spec of specs) {
     if (spec.kind === "absolute") {
       parseTime(spec.at);
       stored.at.push(spec.at);
+      continue;
+    }
+    if (spec.kind === "leave") {
+      const buffer = spec.bufferMinutes;
+      if (!Number.isInteger(buffer) || buffer < 0 || buffer > 7 * 24 * 60) {
+        throw invalidInput("a leave alert can't be more than a week before you need to leave");
+      }
+      if (!stored.leave.includes(buffer)) stored.leave.push(buffer);
       continue;
     }
     const minutes = spec.minutes;
@@ -637,7 +653,7 @@ function splitAlerts(alerts: NonNullable<EventDraft["alerts"]>): {
     else if (method === "email") stored.email.push(minutes);
     else stored.popup.push(minutes);
   }
-  const kept = stored.at.length || stored.popup.length || stored.email.length ? JSON.stringify(stored) : "";
+  const kept = stored.at.length || stored.popup.length || stored.email.length || stored.leave.length ? JSON.stringify(stored) : "";
   return { reminders: { useDefault: false, overrides }, stored: kept };
 }
 

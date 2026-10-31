@@ -325,6 +325,8 @@ fn to_agenda_item(
         alert_at: Vec::new(),
         floating: false,
         time_zone: None,
+        leave_from: None,
+        leave_alerts: Vec::new(),
     })
 }
 
